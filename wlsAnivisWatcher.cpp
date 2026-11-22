@@ -82,6 +82,12 @@ static void set_constant(DzBoolProperty *prop, bool on)
 	prop->setBoolValue(on);
 }
 
+// Daz deletes the scene before the main window on exit.
+static bool scene_usable()
+{
+	return dzApp && !dzApp->isClosing() && dzScene;
+}
+
 static DzNode *owner_node(const DzBoolProperty *prop)
 {
 	return prop ? qobject_cast<DzNode*>(prop->getOwner()) : nullptr;
@@ -102,13 +108,10 @@ void wls_anivis_watcher::set_visible(DzNode *node, bool on)
 
 wls_anivis_watcher *wls_anivis_watcher::instance()
 {
-	// Parented to the application so it lives as long as Daz Studio.
-	static wls_anivis_watcher *watcher = nullptr;
-	if (!watcher)
-	{
-		watcher = new wls_anivis_watcher();
-		watcher->setParent(dzApp);
-	}
+	// Deliberately never deleted: Daz tears down the scene and unloads
+	// plugins in its own order on exit, and a parent that deletes this late
+	// could run code after the plugin is gone. The OS frees it at exit.
+	static wls_anivis_watcher *watcher = new wls_anivis_watcher();
 	return watcher;
 }
 
@@ -161,7 +164,8 @@ void wls_anivis_watcher::notify()
 	notify_scheduled_ = true;
 	QTimer::singleShot(0, this, [this]() {
 		notify_scheduled_ = false;
-		emit anivis_changed();
+		if (scene_usable())
+			emit anivis_changed();
 	});
 }
 
@@ -331,6 +335,8 @@ void wls_anivis_watcher::rescan_scene()
 void wls_anivis_watcher::flush_pending()
 {
 	flush_scheduled_ = false;
+	if (!scene_usable())
+		return;
 	// Wait until a file has finished loading: its saved AniVis properties
 	// (including removed ones) only exist once loading is complete.
 	if (dzScene->isLoading())
@@ -390,6 +396,8 @@ void wls_anivis_watcher::refresh()
 
 void wls_anivis_watcher::on_time_changed(DzTime time)
 {
+	if (!scene_usable())
+		return;
 	handling_time_change_ = true;
 	bool stale = false;
 	for (const QPointer<DzBoolProperty> &prop : tracked_)
@@ -410,7 +418,7 @@ void wls_anivis_watcher::on_time_changed(DzTime time)
 
 void wls_anivis_watcher::on_anivis_value_changed()
 {
-	if (handling_time_change_)
+	if (handling_time_change_ || !scene_usable())
 		return;
 	// The user changed "Animate Visibility": show the result right away.
 	apply(qobject_cast<DzBoolProperty*>(sender()), dzScene->getTime());
@@ -420,7 +428,7 @@ void wls_anivis_watcher::on_anivis_value_changed()
 void wls_anivis_watcher::on_visible_changed()
 {
 	// Only real toggles: not AniVis's own changes and not file loading.
-	if (applying_ || handling_time_change_ || !auto_add_ || dzScene->isLoading())
+	if (applying_ || handling_time_change_ || !auto_add_ || !scene_usable() || dzScene->isLoading())
 		return;
 
 	auto vis = qobject_cast<DzBoolProperty*>(sender());

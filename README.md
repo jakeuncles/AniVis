@@ -3,7 +3,7 @@ Plugin to animate node visibility in Daz Studio 6.
 
 This is a port of [fjdiazt/AniVis](https://github.com/fjdiazt/AniVis) (DAZ Studio 4.5+, Qt 4) to Daz Studio 6 (Qt 6.10, SDK 6). It also fixes a bug in the original code where the watcher's signal connections pointed at slot names that no longer existed, so the Visible property was never updated.
 
-Version 2.2. Tested on Daz Studio 6.26 (Windows) with Genesis 9.
+Version 2.3. Tested on Daz Studio 6.26 (Windows) with Genesis 9.
 
 ## Terms
 Licensed under Mozilla Public License Version 2.0 (MPL).
@@ -51,24 +51,22 @@ The first toggle adds an **Animate Visibility** property to the item (Parameters
 
 Each key holds until the next key: hidden at frame 10 and visible at frame 20 means hidden for frames 10-19.
 
-### The AniVis page in the Scene pane
-Open the Scene pane and click the **AniVis** tab next to Outline. Daz adds the tab automatically. Like Daz's own Scene pane tabs, it also has an action ("Scene - AniVis") that you can put on a keyboard shortcut or toolbar in Window > Workspace > Customize.
+### The AniVis Timeline pane
+Open **Window > Panes (Tabs) > AniVis Timeline**. It is a pane of its own: drag its tab next to the Timeline tab (or anywhere else) and Daz keeps it there in your layout.
 
-It lists every item with Animate Visibility, nested like the Outline, with:
+![AniVis Timeline](docs/anivis-timeline.png)
 
-| Column | Shows |
+It has a frame ruler like the Timeline and one row per item with Animate Visibility, nested like the Scene pane:
+
+| Part | Shows |
 |---|---|
-| Item | The figure, clothing, hair, prop or light. |
+| Item | The figure, clothing, hair, prop or light. Click to select it (Ctrl/Shift-click to add to the selection). |
 | Now | Whether it is visible at the current frame. Click it to toggle (and key) the item at the current frame. |
-| Keys | How many visibility keys it has ("-" when it is not animated). |
-| Timeline | The whole animation: green where the item is visible, red where it is hidden, yellow diamonds for keys and a white line for the current frame. Click or drag on it to move the timeline there. "not animated" means one value for the whole animation. |
+| Bar | The whole animation: green where the item is visible, red where it is hidden, yellow diamonds for keys and a white line for the current frame. Click or drag on the bars or the ruler to move the timeline. "not animated" means one value for the whole animation. |
 
-Selecting rows selects the items in the scene (and the other way round). The buttons act on the selected rows: **Key Visible**, **Key Hidden** (at the current frame), **Clear Keys** and **Remove**. **All items** also lists the figures, props and lights that do not use AniVis yet, so you can key them from here.
-
-The Tips tab of the Scene pane has a short AniVis help page. AniVis creates it on first use in your Daz Studio data folder from Daz's own Outline tip page.
-
+The buttons act on the selected items: **Key Visible**, **Key Hidden** (at the current frame), **Clear Keys** and **Remove**. **All items** also lists the figures, props and lights that do not use AniVis yet, so you can key them from here.
 ### Menu: Edit > AniVis
-The same items are in the Scene pane's right-click menu under Edit > AniVis.
+The same items are in the Scene pane's right-click menu under Edit > AniVis. They act on the selected items.
 
 | Item | What it does |
 |---|---|
@@ -77,7 +75,7 @@ The same items are in the Scene pane's right-click menu under Edit > AniVis.
 | Key Visible Here / Key Hidden Here | Keys the selected items at the current frame. |
 | Clear Keys | Deletes all AniVis keys on the selected items and makes them visible. |
 | Select Animated Items | Selects every item whose visibility is animated. |
-| Key Visibility When Toggled | Turns keying on eye-icon toggles on or off (remembered). When it is off, only the menu items and the AniVis page add keys. |
+| Key Visibility When Toggled | Turns keying on eye-icon toggles on or off (remembered). When it is off, only the menu items and the AniVis Timeline pane add keys. |
 
 ### Saving and loading
 The property, its keys and a removed property's "removed" state are saved with the scene. They survive opening the scene, merging it into another scene, and loading the items as content. Scenes made with the original AniVis or earlier versions of this port (same property name) keep working.
@@ -87,7 +85,7 @@ Daz saves every animatable value as one key, so AniVis only treats a property wi
 ### Limitations
 - Edit > Undo does not undo AniVis keys or Add/Remove yet. Undoing an eye-icon toggle with Edit > Undo is seen as another toggle and keyed.
 - Hiding a figure does not hide its clothing; toggle the clothing too, or select the figure and its clothing together and use Key Hidden.
-- Daz Studio's Scene pane cannot be extended with extra icons by plugins, so the overview is the AniVis tab in that pane rather than a marker in the Outline.
+- Daz Studio's Scene pane and Timeline cannot be given extra icons or rows by plugins, so the overview is the separate AniVis Timeline pane.
 ## Trademarks
 DAZ Studio is a trademark of DAZ 3D, Inc.
 

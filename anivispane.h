@@ -1,5 +1,5 @@
 /**********************************************************************
-	AniVis for Daz Studio 6 - "AniVis" page in the Scene pane.
+	AniVis for Daz Studio 6 - the AniVis pane (docks next to the Timeline).
 
 	This source code and software provided under the terms of the
 	Mozilla Public License Version 2.0 (MPL) a copy of which is
@@ -7,92 +7,104 @@
 **********************************************************************/
 #pragma once
 
-#include <QtCore/QHash>
+#include <QtCore/QList>
+#include <QtCore/QMetaObject>
 #include <QtCore/QPointer>
-#include <QtWidgets/QStyledItemDelegate>
+#include <QtWidgets/QWidget>
 
 #include "dzaction.h"
-#include "dzsubpane.h"
+#include "dzpane.h"
 #include "dztypes.h"
 
 class QCheckBox;
 class QLabel;
-class QTreeWidget;
-class QTreeWidgetItem;
+class QScrollBar;
 class DzNode;
-class DzSettings;
-class DzAniVisSubPane;
 
-// Paints the "Now" and "Timeline" columns.
-class DzAniVisDelegate : public QStyledItemDelegate {
-	Q_OBJECT
-public:
-	explicit DzAniVisDelegate(DzAniVisSubPane *pane);
-	void paint(QPainter *painter, const QStyleOptionViewItem &option,
-		const QModelIndex &index) const override;
-	QSize sizeHint(const QStyleOptionViewItem &option, const QModelIndex &index) const override;
-private:
-	DzAniVisSubPane *pane_;
+// One row of the AniVis timeline.
+struct AniVisRow
+{
+	QPointer<DzNode> node;
+	QString label;
+	int depth = 0;
 };
 
-// A page in Daz's Scene pane that lists the items with an Animate Visibility
-// property, shows when each one is visible on a timeline strip, and lets you
-// jump to a frame or toggle visibility at the current frame.
-class DzAniVisSubPane : public DzSubPane {
+// Draws a frame ruler and, per item, its visibility over the animation:
+// green = visible, red = hidden, yellow diamonds = keys, white line = the
+// current frame. Plain painting (no item views), so nothing in it reacts to
+// Daz tearing down the scene.
+class DzAniVisTimelineView : public QWidget {
 	Q_OBJECT
-	Q_CLASSINFO( "subpane_type", "DzHierarchyPane" ) // a page of the "Scene" pane
 public:
-	enum Column { ItemColumn = 0, NowColumn, KeysColumn, TimelineColumn };
+	explicit DzAniVisTimelineView(QWidget *parent = nullptr);
 
-	DzAniVisSubPane();
-	~DzAniVisSubPane() override;
+	void set_rows(const QList<AniVisRow> &rows);
+	void set_scroll(int first_row);
+	int  row_count() const { return rows_.size(); }
+	int  visible_rows() const;
 
-	QString	getLabel() const override;
-
-	// Points the Scene pane's Tips tab at an "AniVis" tip page (created on
-	// first use), so Daz does not ask to create a placeholder page.
-	DzSettings *getInfoTabsSettings() const override;
-
-	DzNode	*node_for(const QModelIndex &index) const;
-
-	// The timeline strip's drawing area inside a cell.
-	static QRect strip_rect(const QRect &cell);
-
-	Q_SLOT void refresh();
+signals:
+	void scroll_requested(int delta_rows);
 
 protected:
-	bool	eventFilter(QObject *watched, QEvent *event) override;
-	void	showEvent(QShowEvent *e) override;
+	void paintEvent(QPaintEvent *e) override;
+	void mousePressEvent(QMouseEvent *e) override;
+	void mouseMoveEvent(QMouseEvent *e) override;
+	void mouseReleaseEvent(QMouseEvent *e) override;
+	void wheelEvent(QWheelEvent *e) override;
+	void resizeEvent(QResizeEvent *e) override;
 
 private:
-	void	schedule_rebuild();
-	void	rebuild();
-	void	repaint_rows();
-	QTreeWidgetItem *item_for(DzNode *node, QHash<DzNode*, QTreeWidgetItem*> &items,
-		const QHash<DzNode*, bool> &listed);
-	QList<DzNode*> target_nodes() const;
-	void	jump_to(const QModelIndex &index, int x);
+	enum Area { Nowhere, Ruler, Name, Eye, Bars };
+	Area area_at(const QPoint &pos, int *row) const;
+	QRect bars_rect() const;
+	void layout_columns();
+	void scrub_to(int x);
+	DzNode *node_at_row(int row) const;
 
-	void	on_tree_selection_changed();
-	void	on_scene_selection_changed();
-	void	key_selected(bool visible);
-	void	clear_selected();
-	void	remove_selected();
-
-	QTreeWidget	*tree_ = nullptr;
-	QCheckBox	*show_all_ = nullptr;
-	QLabel		*summary_ = nullptr;
-	QHash<quintptr, QPointer<DzNode>> nodes_;
-	mutable QPointer<DzSettings> tip_settings_;
-	bool	rebuild_scheduled_ = false;
-	bool	dirty_ = true;
-	bool	syncing_selection_ = false;
-	bool	scrubbing_ = false;
+	QList<AniVisRow> rows_;
+	int first_row_ = 0;
+	int name_width_ = 160;
+	bool scrubbing_ = false;
 };
 
-// Shows the AniVis page (Window > Panes, and the Scene pane's page menu).
-class DzAniVisSubPaneAction : public DzSubPaneAction {
+// The "AniVis Timeline" pane: Window > Panes (Tabs) > AniVis Timeline.
+// A pane of its own; dock it wherever you like, e.g. next to the Timeline.
+class DzAniVisPane : public DzPane {
 	Q_OBJECT
 public:
-	DzAniVisSubPaneAction();
+	DzAniVisPane();
+	~DzAniVisPane() override;
+
+	Q_SLOT void refresh() override;
+
+protected:
+	void showEvent(QShowEvent *e) override;
+	void resizeEvent(QResizeEvent *e) override;
+
+private:
+	void connect_scene();
+	bool alive() const;
+	void schedule_rebuild();
+	void rebuild();
+	void repaint_view();
+	void update_scrollbar();
+	QList<DzNode*> target_nodes() const;
+
+	DzAniVisTimelineView *view_ = nullptr;
+	QScrollBar *scroll_ = nullptr;
+	QCheckBox *show_all_ = nullptr;
+	QLabel *summary_ = nullptr;
+	QList<QMetaObject::Connection> connections_;      // lifetime of the pane
+	QList<QMetaObject::Connection> row_connections_;  // rebuilt with the rows
+	bool rebuild_scheduled_ = false;
+	bool dirty_ = true;
+	bool closing_ = false;
+};
+
+// Window > Panes (Tabs) > AniVis Timeline.
+class DzAniVisPaneAction : public DzPaneAction {
+	Q_OBJECT
+public:
+	DzAniVisPaneAction() : DzPaneAction(DzAniVisPane::staticMetaObject.className()) {}
 };
