@@ -101,12 +101,32 @@ void wls_anivis_watcher::on_node_added(DzNode *node)
 	watch(anivis_property(node));
 }
 
+// Daz interpolates bool keys as numbers and rounds down (whatever the key's
+// interpolation type), so between an On key and a later Off key the value
+// is already Off on the next frame. Hold each key's value until the next
+// key instead, so "On at 0, Off at 10" means visible for frames 0-9.
+static bool stepped_value(const DzBoolProperty *prop, DzTime time)
+{
+	const int count = prop->getNumKeys();
+	if (count == 0)
+		return prop->getBoolValue(time);
+
+	int index = 0; // before the first key: use the first key's value
+	for (int i = 0; i < count; ++i)
+	{
+		if (prop->getKeyTime(i) > time)
+			break;
+		index = i;
+	}
+	return prop->getKeyBoolValue(index);
+}
+
 void wls_anivis_watcher::apply(DzNode *node, DzBoolProperty *prop, DzTime time)
 {
 	DzBoolProperty *visible = node ? node->getVisibilityControl() : nullptr;
 	if (!visible || !prop)
 		return;
-	const bool on = prop->getBoolValue(time);
+	const bool on = stepped_value(prop, time);
 	if (visible->getBoolValue() != on)
 		visible->setBoolValue(on);
 }

@@ -44,13 +44,13 @@ Notes for the Daz Studio 6 SDK: Windows plugins must be named `dsp_*.dll`, `aniv
 ## To Use
 Select one or more nodes in the scene.
 
-Click the menu item Edit / Add AnaVis Property.
+Click the menu item Edit / Add AniVis Property.
 
 Select a node and move in the Timeline to the frame where you want it to disappear.
 
 Locate the Animate Visibility property under Parameters/Visibility and toggle it to Off.
 
-Move the prior frame and toggle it to On.
+Each key holds until the next key: On at frame 0 and Off at frame 10 means the node is visible for frames 0-9 and hidden from frame 10. (Daz itself rounds On/Off keys down between keys, so the plugin reads the keys directly; you do not need an extra On key on the frame before.)
 
 Note that you can also toggle back and forth in multiple frames e.g. to blink.
 
