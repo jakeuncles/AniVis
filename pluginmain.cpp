@@ -21,7 +21,7 @@
 #include "version.h"
 #include "anivisaction.h"
 
-DZ_PLUGIN_DEFINITION( "AniVis - Animate Node Visiblity" );
+DZ_PLUGIN_DEFINITION( "AniVis - Animate Node Visibility (Daz Studio 6)" );
 
 DZ_PLUGIN_AUTHOR( "West Leitrim Software" );
 

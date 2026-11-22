@@ -1,6 +1,5 @@
-LIBRARY wls_anivis
+; Daz Studio looks these up by their plain (unmangled) names.
+LIBRARY dsp_anivis
 EXPORTS
-	getSDKVersion			@1
-	getPluginDefinition		@2
-SECTIONS
-	.data READ WRITE
+	getSDKVersion
+	getPluginDefinition

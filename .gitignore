@@ -32,3 +32,5 @@ release
 /Debug/
 /exec/Debug/
 /*.vcxproj.user
+
+/build/
