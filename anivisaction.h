@@ -91,7 +91,7 @@ protected:
 	void executeAction() override;
 };
 
-// Edit > AniVis > Auto-Add to New Items (on/off, remembered).
+// Edit > AniVis > Key Visibility When Toggled (on/off, remembered).
 class DzAniVisAutoAddAction : public DzAniVisBaseAction {
 	Q_OBJECT
 public:

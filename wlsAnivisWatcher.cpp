@@ -35,7 +35,7 @@
 const QString wls_anivis_watcher::property_name = "AnimateVisibility";
 
 static const char *settings_path = "AniVis";
-static const char *auto_add_key = "AutoAdd";
+static const char *auto_add_key = "AddWhenToggled";
 
 // ---------------------------------------------------------------------------
 // helpers
@@ -44,7 +44,7 @@ static const char *auto_add_key = "AutoAdd";
 // interpolation type), so between an On key and a later Off key the value
 // is already Off on the next frame. Hold each key's value until the next
 // key instead, so "On at 0, Off at 10" means visible for frames 0-9.
-static bool stepped_value(const DzBoolProperty *prop, DzTime time)
+bool wls_anivis_watcher::value_at(const DzBoolProperty *prop, DzTime time)
 {
 	const int count = prop->getNumKeys();
 	if (count == 0)
@@ -69,8 +69,6 @@ static bool stepped_value(const DzBoolProperty *prop, DzTime time)
 	return prop->getKeyBoolValue(found);
 }
 
-// Daz saves every animatable value as one key at frame 0, so a single key is
-// just a constant: only two or more keys mean the visibility is animated.
 bool wls_anivis_watcher::is_animated(const DzBoolProperty *prop)
 {
 	return prop && prop->getNumKeys() >= 2;
@@ -89,11 +87,14 @@ static DzNode *owner_node(const DzBoolProperty *prop)
 	return prop ? qobject_cast<DzNode*>(prop->getOwner()) : nullptr;
 }
 
-static void set_visible(DzNode *node, bool on)
+void wls_anivis_watcher::set_visible(DzNode *node, bool on)
 {
 	DzBoolProperty *visible = node ? node->getVisibilityControl() : nullptr;
-	if (visible && visible->getBoolValue() != on)
-		visible->setBoolValue(on);
+	if (!visible || visible->getBoolValue() == on)
+		return;
+	applying_ = true; // not a user toggle
+	visible->setBoolValue(on);
+	applying_ = false;
 }
 
 // ---------------------------------------------------------------------------
@@ -150,14 +151,18 @@ void wls_anivis_watcher::set_auto_add(bool on)
 	auto_add_ = on;
 	DzAppSettings settings(settings_path);
 	settings.setBoolValue(auto_add_key, on);
-	if (on)
-	{
-		// Give the items already in the scene a property too.
-		DzNodeListIterator nli = dzScene->nodeListIterator();
-		while (nli.hasNext())
-			pending_.append(nli.next());
-		flush_pending();
-	}
+}
+
+void wls_anivis_watcher::notify()
+{
+	// Coalesce bursts (e.g. keying many items) into one pane refresh.
+	if (notify_scheduled_)
+		return;
+	notify_scheduled_ = true;
+	QTimer::singleShot(0, this, [this]() {
+		notify_scheduled_ = false;
+		emit anivis_changed();
+	});
 }
 
 // ---------------------------------------------------------------------------
@@ -203,6 +208,7 @@ DzBoolProperty *wls_anivis_watcher::ensure_property(DzNode *node)
 			prop->setHidden(false);
 			if (!is_animated(prop))
 				set_constant(prop, visible_now);
+			notify();
 		}
 		track(prop);
 		return prop;
@@ -221,6 +227,7 @@ DzBoolProperty *wls_anivis_watcher::ensure_property(DzNode *node)
 
 	node->addProperty(prop);
 	track(prop);
+	notify();
 	return prop;
 }
 
@@ -234,6 +241,7 @@ bool wls_anivis_watcher::remove_property(DzNode *node)
 	prop->setHidden(true);
 	set_constant(prop, true);
 	set_visible(node, true);
+	notify();
 	return true;
 }
 
@@ -246,10 +254,17 @@ bool wls_anivis_watcher::clear_keys(DzNode *node)
 	set_constant(prop, true);
 	handling_time_change_ = false;
 	set_visible(node, true);
+	notify();
 	return true;
 }
 
 void wls_anivis_watcher::key_visibility(DzNode *node, bool visible)
+{
+	DzBoolProperty *vis = node ? node->getVisibilityControl() : nullptr;
+	key_visibility(node, visible, vis ? vis->getBoolValue() : true);
+}
+
+void wls_anivis_watcher::key_visibility(DzNode *node, bool visible, bool before)
 {
 	DzBoolProperty *prop = ensure_property(node);
 	if (!prop)
@@ -258,25 +273,34 @@ void wls_anivis_watcher::key_visibility(DzNode *node, bool visible)
 	const DzTime now = dzScene->getTime();
 	const DzTime start = dzScene->getAnimRange().getStart();
 
-	// First real key: start from what the node looks like now (its eye
-	// icon), so this key does not also apply to the frames before it.
+	handling_time_change_ = true; // apply once, at the end
+	// First real key: keep what the node looked like before this change on
+	// the earlier frames, so the key only applies from this frame on.
 	if (!is_animated(prop))
 	{
-		DzBoolProperty *vis = node->getVisibilityControl();
-		const bool before = vis ? vis->getBoolValue() : true;
-		handling_time_change_ = true;
 		prop->deleteAllKeys();
 		if (now > start && before != visible)
 			prop->setBoolValue(start, before);
-		handling_time_change_ = false;
 	}
-
 	prop->setBoolValue(now, visible);
+	handling_time_change_ = false;
+
 	apply(prop, now);
+	notify();
 }
 
 // ---------------------------------------------------------------------------
 // tracking
+
+void wls_anivis_watcher::watch_node(DzNode *node)
+{
+	if (!is_candidate(node))
+		return;
+	if (DzBoolProperty *vis = node->getVisibilityControl())
+		connect(vis, &DzProperty::currentValueChanged, this,
+			&wls_anivis_watcher::on_visible_changed, Qt::UniqueConnection);
+	track(anivis_property(node));
+}
 
 void wls_anivis_watcher::track(DzBoolProperty *prop)
 {
@@ -288,6 +312,11 @@ void wls_anivis_watcher::track(DzBoolProperty *prop)
 	tracked_.append(prop);
 	connect(prop, &DzProperty::currentValueChanged, this,
 		&wls_anivis_watcher::on_anivis_value_changed, Qt::UniqueConnection);
+	// Keys added, moved or deleted (also from the timeline) and removal.
+	connect(prop, &DzProperty::valueChanged, this,
+		&wls_anivis_watcher::notify, Qt::UniqueConnection);
+	connect(prop, &DzProperty::hiddenChanged, this,
+		&wls_anivis_watcher::notify, Qt::UniqueConnection);
 }
 
 void wls_anivis_watcher::rescan_scene()
@@ -295,7 +324,8 @@ void wls_anivis_watcher::rescan_scene()
 	tracked_.removeAll(QPointer<DzBoolProperty>());
 	DzNodeListIterator nli = dzScene->nodeListIterator();
 	while (nli.hasNext())
-		track(anivis_property(nli.next()));
+		watch_node(nli.next());
+	notify();
 }
 
 void wls_anivis_watcher::flush_pending()
@@ -313,14 +343,9 @@ void wls_anivis_watcher::flush_pending()
 	const QList<QPointer<DzNode>> nodes = pending_;
 	pending_.clear();
 	for (const QPointer<DzNode> &node : nodes)
-	{
-		if (!node)
-			continue;
-		if (DzBoolProperty *prop = anivis_property(node))
-			track(prop);
-		else if (auto_add_ && is_candidate(node))
-			ensure_property(node);
-	}
+		if (node)
+			watch_node(node);
+	notify();
 }
 
 void wls_anivis_watcher::on_node_added(DzNode *node)
@@ -345,6 +370,7 @@ void wls_anivis_watcher::on_scene_cleared()
 {
 	tracked_.clear();
 	pending_.clear();
+	notify();
 }
 
 // ---------------------------------------------------------------------------
@@ -354,7 +380,7 @@ void wls_anivis_watcher::apply(DzBoolProperty *prop, DzTime time)
 {
 	if (!prop || prop->isHidden())
 		return;
-	set_visible(owner_node(prop), stepped_value(prop, time));
+	set_visible(owner_node(prop), value_at(prop, time));
 }
 
 void wls_anivis_watcher::refresh()
@@ -388,4 +414,25 @@ void wls_anivis_watcher::on_anivis_value_changed()
 		return;
 	// The user changed "Animate Visibility": show the result right away.
 	apply(qobject_cast<DzBoolProperty*>(sender()), dzScene->getTime());
+	notify();
+}
+
+void wls_anivis_watcher::on_visible_changed()
+{
+	// Only real toggles: not AniVis's own changes and not file loading.
+	if (applying_ || handling_time_change_ || !auto_add_ || dzScene->isLoading())
+		return;
+
+	auto vis = qobject_cast<DzBoolProperty*>(sender());
+	DzNode *node = owner_node(vis);
+	if (!vis || !node)
+		return;
+
+	// A removed property stays removed.
+	DzBoolProperty *prop = anivis_property(node);
+	if (prop && prop->isHidden())
+		return;
+
+	const bool now_on = vis->getBoolValue();
+	key_visibility(node, now_on, !now_on);
 }

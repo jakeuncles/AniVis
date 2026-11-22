@@ -40,7 +40,7 @@ DzAniVisBaseAction::DzAniVisBaseAction(const QString &text, const QString &desc)
 	DzEditAction(text, desc)
 {
 	// Start watching as soon as the plugin loads, so saved scenes and
-	// auto-add work without using a menu item first.
+	// keying on toggle work without using a menu item first.
 	watcher();
 }
 
@@ -85,7 +85,7 @@ void DzAniVisAction::executeAction()
 DzAniVisRemoveAction::DzAniVisRemoveAction() :
 	DzAniVisBaseAction("Remove Property",
 		"Remove Animate Visibility (and its keys) from the selected items; "
-		"auto-add will not add it back")
+		"toggling visibility will not add it back")
 {
 }
 
@@ -171,8 +171,8 @@ void DzAniVisSelectAction::executeAction()
 // ---------------------------------------------------------------------------
 
 DzAniVisAutoAddAction::DzAniVisAutoAddAction() :
-	DzAniVisBaseAction("Auto-Add to New Items",
-		"Automatically add Animate Visibility to figures, clothing, hair, props and lights")
+	DzAniVisBaseAction("Key Visibility When Toggled",
+		"Toggling an item's visibility (eye icon) adds Animate Visibility and keys it at the current frame")
 {
 	setCheckable(true);
 	setChecked(watcher()->auto_add());
@@ -181,5 +181,5 @@ DzAniVisAutoAddAction::DzAniVisAutoAddAction() :
 void DzAniVisAutoAddAction::executeAction()
 {
 	watcher()->set_auto_add(isChecked());
-	status(isChecked() ? "auto-add is on." : "auto-add is off.");
+	status(isChecked() ? "toggling visibility now keys it." : "toggling visibility no longer keys it.");
 }

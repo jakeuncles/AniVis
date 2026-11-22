@@ -7,7 +7,7 @@
 #
 # Result: build/Release/dsp_anivis.dll -> copy into <DAZStudio6>/plugins.
 cmake_minimum_required(VERSION 3.21)
-project(anivis VERSION 2.1.0 LANGUAGES CXX)
+project(anivis VERSION 2.2.0 LANGUAGES CXX)
 
 set(DAZ_SDK_DIR "" CACHE PATH "Root folder of the Daz Studio 6 SDK (contains include/ and x64/lib/)")
 if(NOT DAZ_SDK_DIR)
@@ -22,6 +22,10 @@ find_package(Qt6 6.2 REQUIRED COMPONENTS Core Gui Widgets)
 
 find_path(DAZ_SDK_INCLUDE_DIR dzapp.h
   PATHS "${DAZ_SDK_DIR}/include" "${DAZ_SDK_DIR}"
+  NO_DEFAULT_PATH REQUIRED)
+
+find_library(DAZ_MEMORY_LIBRARY NAMES dzsdkmemory
+  PATHS "${DAZ_SDK_DIR}/x64/lib" "${DAZ_SDK_DIR}/lib/x64" "${DAZ_SDK_DIR}/lib"
   NO_DEFAULT_PATH REQUIRED)
 
 find_library(DAZ_CORE_LIBRARY NAMES dzcore
@@ -39,10 +43,16 @@ add_library(anivis MODULE
   wlsAnivisWatcher.cpp
   wlsAnivisWatcher.h
   version.h
+  anivisguids.h
+  anivispane.cpp
+  anivispane.h
+  # new/delete from the same memory pool as Daz Studio (it deletes the
+  # properties the plugin creates)
+  "${DAZ_SDK_INCLUDE_DIR}/dzsdkmemorydefines.cpp"
 )
 
 target_include_directories(anivis PRIVATE "${DAZ_SDK_INCLUDE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}")
-target_link_libraries(anivis PRIVATE "${DAZ_CORE_LIBRARY}" Qt6::Core Qt6::Gui Qt6::Widgets)
+target_link_libraries(anivis PRIVATE "${DAZ_CORE_LIBRARY}" "${DAZ_MEMORY_LIBRARY}" Qt6::Core Qt6::Gui Qt6::Widgets)
 
 if(WIN32)
   target_compile_definitions(anivis PRIVATE UNICODE _UNICODE NOMINMAX)

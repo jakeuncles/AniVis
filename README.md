@@ -3,7 +3,7 @@ Plugin to animate node visibility in Daz Studio 6.
 
 This is a port of [fjdiazt/AniVis](https://github.com/fjdiazt/AniVis) (DAZ Studio 4.5+, Qt 4) to Daz Studio 6 (Qt 6.10, SDK 6). It also fixes a bug in the original code where the watcher's signal connections pointed at slot names that no longer existed, so the Visible property was never updated.
 
-Version 2.1. Tested on Daz Studio 6.26 (Windows) with Genesis 9.
+Version 2.2. Tested on Daz Studio 6.26 (Windows) with Genesis 9.
 
 ## Terms
 Licensed under Mozilla Public License Version 2.0 (MPL).
@@ -42,39 +42,52 @@ The result is `build/Release/dsp_anivis.dll`. If MSBuild reports `FTK1011` error
 Notes for the Daz Studio 6 SDK: Windows plugins must be named `dsp_*.dll`, `anivis.def` exports `getSDKVersion` and `getPluginDefinition` by their plain names, and `DzBase::makePersistent()` is obsolete.
 
 ## To Use
-Every figure, piece of clothing, hair, prop and light you add to the scene automatically gets an **Animate Visibility** property (Parameters pane, under Display). Bones and cameras do not, so a Genesis figure gets one property per item, not one per bone.
+Animating visibility works like any other keyframe: **toggle an item's eye icon** in the Scene pane (or its Visible parameter) and AniVis keys it at the current frame.
 
-To make something disappear and reappear:
+1. Move the timeline to the frame where an item should disappear and click its eye icon. It is hidden from that frame on; the frames before it stay as they were.
+2. Move to the frame where it should come back and click the eye icon again.
 
-1. Select it and move the timeline to the frame where it should disappear.
-2. Choose **Edit > AniVis > Key Hidden Here** (or set Animate Visibility to Off in the Parameters pane).
-3. Move to the frame where it should come back and choose **Key Visible Here**.
+The first toggle adds an **Animate Visibility** property to the item (Parameters pane, under Display). Items you never toggle get nothing. A toggle on the first frame of the animation is just a plain on/off value, so hiding things while you set up a still scene does not create animation.
 
-Each key holds until the next key: Off at frame 10 and On at frame 20 means hidden for frames 10-19. The first key also keeps what the item looked like before it, so keying "hidden" at frame 10 does not hide frames 0-9 as well.
+Each key holds until the next key: hidden at frame 10 and visible at frame 20 means hidden for frames 10-19.
 
-Until Animate Visibility is keyed on two or more frames it does nothing, and the normal eye icon in the Scene pane works as usual. (Daz saves every animatable value as one key, so a single key counts as a plain value.)
+### The AniVis page in the Scene pane
+Open the Scene pane and click the **AniVis** tab next to Outline. Daz adds the tab automatically. Like Daz's own Scene pane tabs, it also has an action ("Scene - AniVis") that you can put on a keyboard shortcut or toolbar in Window > Workspace > Customize.
+
+It lists every item with Animate Visibility, nested like the Outline, with:
+
+| Column | Shows |
+|---|---|
+| Item | The figure, clothing, hair, prop or light. |
+| Now | Whether it is visible at the current frame. Click it to toggle (and key) the item at the current frame. |
+| Keys | How many visibility keys it has ("-" when it is not animated). |
+| Timeline | The whole animation: green where the item is visible, red where it is hidden, yellow diamonds for keys and a white line for the current frame. Click or drag on it to move the timeline there. "not animated" means one value for the whole animation. |
+
+Selecting rows selects the items in the scene (and the other way round). The buttons act on the selected rows: **Key Visible**, **Key Hidden** (at the current frame), **Clear Keys** and **Remove**. **All items** also lists the figures, props and lights that do not use AniVis yet, so you can key them from here.
+
+The Tips tab of the Scene pane has a short AniVis help page. AniVis creates it on first use in your Daz Studio data folder from Daz's own Outline tip page.
 
 ### Menu: Edit > AniVis
 The same items are in the Scene pane's right-click menu under Edit > AniVis.
 
 | Item | What it does |
 |---|---|
-| Add Property | Adds Animate Visibility to the selected items, or brings back one you removed. |
-| Remove Property | Deletes the keys, makes the item visible and hides the property. Auto-add will not add it back, also after saving and reopening the scene. |
+| Add Property | Adds Animate Visibility to the selected items without keying them, or brings back one you removed. |
+| Remove Property | Deletes the keys, makes the item visible and hides the property. Toggling the item's eye icon no longer keys it, also after saving and reopening the scene. |
 | Key Visible Here / Key Hidden Here | Keys the selected items at the current frame. |
 | Clear Keys | Deletes all AniVis keys on the selected items and makes them visible. |
 | Select Animated Items | Selects every item whose visibility is animated. |
-| Auto-Add to New Items | Turns auto-add on or off. The setting is remembered. Turning it on also adds the property to the items already in the scene. |
+| Key Visibility When Toggled | Turns keying on eye-icon toggles on or off (remembered). When it is off, only the menu items and the AniVis page add keys. |
 
 ### Saving and loading
-The property, its keys and a removed property's "removed" state are saved with the scene. They survive opening the scene, merging it into another scene, and loading the items as content. Scenes made with the original AniVis (same property name) keep working.
+The property, its keys and a removed property's "removed" state are saved with the scene. They survive opening the scene, merging it into another scene, and loading the items as content. Scenes made with the original AniVis or earlier versions of this port (same property name) keep working.
 
-Items can be nested: you can also animate a single piece of clothing, or a prop parented to a figure.
+Daz saves every animatable value as one key, so AniVis only treats a property with two or more keys as animated; a single key is a plain value and never overrides the eye icon.
 
 ### Limitations
-- Add, Remove, Clear Keys and the key items cannot be undone with Edit > Undo yet.
-- Hiding a figure does not hide its clothing; key the clothing too, or select the figure and its clothing together before keying.
-
+- Edit > Undo does not undo AniVis keys or Add/Remove yet. Undoing an eye-icon toggle with Edit > Undo is seen as another toggle and keyed.
+- Hiding a figure does not hide its clothing; toggle the clothing too, or select the figure and its clothing together and use Key Hidden.
+- Daz Studio's Scene pane cannot be extended with extra icons by plugins, so the overview is the AniVis tab in that pane rather than a marker in the Outline.
 ## Trademarks
 DAZ Studio is a trademark of DAZ 3D, Inc.
 

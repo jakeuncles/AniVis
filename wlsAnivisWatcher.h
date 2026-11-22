@@ -27,14 +27,16 @@ class DzNode;
 class DzBoolProperty;
 
 // Keeps each node's real "Visible" property in step with its animated
-// "AnimateVisibility" property whenever the scene time changes, and adds
-// that property to new figures, props and lights when auto-add is on.
+// "AnimateVisibility" property whenever the scene time changes.
+//
+// The property is added when, and only when, you toggle an item's
+// visibility (the eye icon in the Scene pane, or its Visible parameter):
+// the toggle is keyed at the current frame. On the first frame that is just
+// a plain value; on a later frame the frames before it keep their old state.
 //
 // A property that is not animated (fewer than two keys) never overrides
-// Visible, so the normal eye icon keeps working until you key "Animate
-// Visibility" on two or more frames. A hidden property means
-// "removed": it is ignored and auto-add does not bring it back, and because
-// the hidden flag is saved with the scene that choice survives save/load.
+// Visible. A hidden property means "removed": it is ignored and toggling
+// does not bring it back; the hidden flag is saved with the scene.
 class wls_anivis_watcher : public QObject
 {
 	Q_OBJECT
@@ -50,9 +52,16 @@ public:
 	// The node's AniVis property if it is active (exists and not removed).
 	static DzBoolProperty *active_property(const DzNode *node);
 
-	// Whether auto-add would give this kind of node a property:
-	// figures (incl. clothing and hair), props and lights; not bones or cameras.
+	// Items AniVis works with: figures (incl. clothing and hair), props and
+	// lights; not bones or cameras.
 	static bool is_candidate(const DzNode *node);
+
+	// True when the property has two or more keys (one key is a constant:
+	// Daz saves every animatable value as one key).
+	static bool is_animated(const DzBoolProperty *prop);
+
+	// Visibility the property gives at `time`: each key holds until the next.
+	static bool value_at(const DzBoolProperty *prop, DzTime time);
 
 	// Adds the property, or restores one that was removed. Returns it.
 	DzBoolProperty *ensure_property(DzNode *node);
@@ -64,37 +73,47 @@ public:
 	// Deletes the node's AniVis keys and makes it visible. False if it had none.
 	bool clear_keys(DzNode *node);
 
-	// True when the property has two or more keys (one key is a constant).
-	static bool is_animated(const DzBoolProperty *prop);
-
-	// Sets a key on the node's property at the scene's current time.
+	// Keys the node visible/hidden at the current frame, adding the property
+	// if needed. `before` is what the node looked like before this change.
+	void key_visibility(DzNode *node, bool visible, bool before);
 	void key_visibility(DzNode *node, bool visible);
 
-	// Re-applies every keyed property at the current time.
+	// Re-applies every animated property at the current time.
 	void refresh();
 
+	// Whether toggling an item's visibility adds the property (remembered).
 	bool auto_add() const { return auto_add_; }
 	void set_auto_add(bool on);
+
+signals:
+	// Something changed that the AniVis pane shows (properties, keys).
+	void anivis_changed();
 
 private:
 	wls_anivis_watcher();
 
 	void hook_scene();
+	void watch_node(DzNode *node);
 	void track(DzBoolProperty *prop);
 	void rescan_scene();
 	void flush_pending();
 	void apply(DzBoolProperty *prop, DzTime time);
+	void set_visible(DzNode *node, bool on);
+	void notify();
 
 	void on_scene_loaded();
 	void on_scene_cleared();
 	void on_node_added(DzNode *node);
 	void on_time_changed(DzTime time);
 	void on_anivis_value_changed();
+	void on_visible_changed();
 
 	QList<QPointer<DzBoolProperty>> tracked_;
 	QList<QPointer<DzNode>> pending_;
 	bool hooked_ = false;
 	bool flush_scheduled_ = false;
+	bool notify_scheduled_ = false;
 	bool auto_add_ = true;
+	bool applying_ = false;  // AniVis itself is changing Visible
 	bool handling_time_change_ = false;
 };
