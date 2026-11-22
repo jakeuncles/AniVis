@@ -22,7 +22,7 @@
 
 // Version number for AniVis
 #define ANAVIS_MAJOR	2
-#define ANAVIS_MINOR	0
+#define ANAVIS_MINOR	1
 #define ANAVIS_REV		0
 #define ANAVIS_BUILD	1
 

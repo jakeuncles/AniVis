@@ -3,7 +3,7 @@ Plugin to animate node visibility in Daz Studio 6.
 
 This is a port of [fjdiazt/AniVis](https://github.com/fjdiazt/AniVis) (DAZ Studio 4.5+, Qt 4) to Daz Studio 6 (Qt 6.10, SDK 6). It also fixes a bug in the original code where the watcher's signal connections pointed at slot names that no longer existed, so the Visible property was never updated.
 
-Current version is "beta" code not "production".
+Version 2.1. Tested on Daz Studio 6.26 (Windows) with Genesis 9.
 
 ## Terms
 Licensed under Mozilla Public License Version 2.0 (MPL).
@@ -42,19 +42,38 @@ The result is `build/Release/dsp_anivis.dll`. If MSBuild reports `FTK1011` error
 Notes for the Daz Studio 6 SDK: Windows plugins must be named `dsp_*.dll`, `anivis.def` exports `getSDKVersion` and `getPluginDefinition` by their plain names, and `DzBase::makePersistent()` is obsolete.
 
 ## To Use
-Select one or more nodes in the scene.
+Every figure, piece of clothing, hair, prop and light you add to the scene automatically gets an **Animate Visibility** property (Parameters pane, under Display). Bones and cameras do not, so a Genesis figure gets one property per item, not one per bone.
 
-Click the menu item Edit / Add AniVis Property.
+To make something disappear and reappear:
 
-Select a node and move in the Timeline to the frame where you want it to disappear.
+1. Select it and move the timeline to the frame where it should disappear.
+2. Choose **Edit > AniVis > Key Hidden Here** (or set Animate Visibility to Off in the Parameters pane).
+3. Move to the frame where it should come back and choose **Key Visible Here**.
 
-Locate the Animate Visibility property under Parameters/Visibility and toggle it to Off.
+Each key holds until the next key: Off at frame 10 and On at frame 20 means hidden for frames 10-19. The first key also keeps what the item looked like before it, so keying "hidden" at frame 10 does not hide frames 0-9 as well.
 
-Each key holds until the next key: On at frame 0 and Off at frame 10 means the node is visible for frames 0-9 and hidden from frame 10. (Daz itself rounds On/Off keys down between keys, so the plugin reads the keys directly; you do not need an extra On key on the frame before.)
+Until Animate Visibility is keyed on two or more frames it does nothing, and the normal eye icon in the Scene pane works as usual. (Daz saves every animatable value as one key, so a single key counts as a plain value.)
 
-Note that you can also toggle back and forth in multiple frames e.g. to blink.
+### Menu: Edit > AniVis
+The same items are in the Scene pane's right-click menu under Edit > AniVis.
 
-Also note that nodes do not need to be top-level, e.g. you can make a character's head disappear... 
+| Item | What it does |
+|---|---|
+| Add Property | Adds Animate Visibility to the selected items, or brings back one you removed. |
+| Remove Property | Deletes the keys, makes the item visible and hides the property. Auto-add will not add it back, also after saving and reopening the scene. |
+| Key Visible Here / Key Hidden Here | Keys the selected items at the current frame. |
+| Clear Keys | Deletes all AniVis keys on the selected items and makes them visible. |
+| Select Animated Items | Selects every item whose visibility is animated. |
+| Auto-Add to New Items | Turns auto-add on or off. The setting is remembered. Turning it on also adds the property to the items already in the scene. |
+
+### Saving and loading
+The property, its keys and a removed property's "removed" state are saved with the scene. They survive opening the scene, merging it into another scene, and loading the items as content. Scenes made with the original AniVis (same property name) keep working.
+
+Items can be nested: you can also animate a single piece of clothing, or a prop parented to a figure.
+
+### Limitations
+- Add, Remove, Clear Keys and the key items cannot be undone with Edit > Undo yet.
+- Hiding a figure does not hide its clothing; key the clothing too, or select the figure and its clothing together before keying.
 
 ## Trademarks
 DAZ Studio is a trademark of DAZ 3D, Inc.
