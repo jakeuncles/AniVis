@@ -1,116 +1,157 @@
 /**********************************************************************
-	Copyright (C) 2015, 2017 by West Leitrim Software. 
+	Copyright (C) 2015, 2017 by West Leitrim Software.
 	All Rights Reserved.
-	
-	This source code and software provided under the terms of the 
-	Mozilla Public License Version 2.0 (MPL) a copy of which is 
+
+	This source code and software provided under the terms of the
+	Mozilla Public License Version 2.0 (MPL) a copy of which is
 	provided with it.
-	
-	Without limitation or modification of the license, note that 
+
+	Without limitation or modification of the license, note that
 	key terms of the license are approximately:
-	
+
 	(1) free to use for personal and commercial purposes
 	(2) you must publish source to any derivative you distribute
 	(3) there is ABSOLUTELY NO WARRANTY
 
+	Daz Studio 6 port, 2026.
 **********************************************************************/
 
 #include "wlsAnivisWatcher.h"
-#include "anivisaction.h"
+
+#include <QtCore/QTimer>
+
+#include "dzapp.h"
+#include "dzscene.h"
 #include "dznode.h"
 #include "dzboolproperty.h"
 
-wls_anivis_watcher::wls_anivis_watcher(void)
+const QString wls_anivis_watcher::property_name = "AnimateVisibility";
+
+wls_anivis_watcher *wls_anivis_watcher::instance()
 {
-	has_anivis_property_ = false;
-	hooked_ = false;
-	real_property_name_ = "Visible";
-	handling_time_change_ = false;
+	// Parented to the application so it lives as long as Daz Studio.
+	static wls_anivis_watcher *watcher = nullptr;
+	if (!watcher)
+	{
+		watcher = new wls_anivis_watcher();
+		watcher->setParent(dzApp);
+	}
+	return watcher;
 }
 
-void wls_anivis_watcher::node_marked()
+wls_anivis_watcher::wls_anivis_watcher()
 {
-	has_anivis_property_ = true;
+	hook_scene();
+}
+
+DzBoolProperty *wls_anivis_watcher::anivis_property(const DzNode *node)
+{
+	if (!node)
+		return nullptr;
+	return qobject_cast<DzBoolProperty*>(node->findProperty(property_name));
 }
 
 void wls_anivis_watcher::hook_scene()
 {
 	if (hooked_)
 		return;
-	connect( dzScene, SIGNAL( sceneCleared() ), this, SLOT( onSceneCleared() ) );
-	connect( dzScene, SIGNAL( sceneLoaded() ), this, SLOT( onSceneLoaded() ) );
-	connect( dzScene, SIGNAL( timeChanged(DzTime ) ), this, SLOT( onTimeChanged(DzTime ) ) );
-
+	// The plugin can load before the scene object exists: try again once
+	// the event loop is running.
+	if (!dzScene)
+	{
+		QTimer::singleShot(250, this, &wls_anivis_watcher::hook_scene);
+		return;
+	}
 	hooked_ = true;
+
+	// Function-pointer connects are checked by the compiler, so a renamed
+	// slot can no longer silently break the plugin.
+	connect(dzScene, &DzScene::sceneLoaded, this, &wls_anivis_watcher::on_scene_loaded);
+	connect(dzScene, &DzScene::nodeAdded, this, &wls_anivis_watcher::on_node_added);
+	connect(dzScene, &DzScene::timeChanged, this, &wls_anivis_watcher::on_time_changed);
+
+	rescan_scene();
 }
 
-
-wls_anivis_watcher::~wls_anivis_watcher(void) = default;
-
-void wls_anivis_watcher::on_scene_cleared()
+void wls_anivis_watcher::watch(DzBoolProperty *prop)
 {
-	has_anivis_property_ = false;
+	if (!prop)
+		return;
+	connect(prop, &DzProperty::currentValueChanged, this,
+		&wls_anivis_watcher::on_anivis_value_changed, Qt::UniqueConnection);
+}
+
+void wls_anivis_watcher::rescan_scene()
+{
+	DzNodeListIterator nli = dzScene->nodeListIterator();
+	while (nli.hasNext())
+		watch(anivis_property(nli.next()));
 }
 
 void wls_anivis_watcher::on_scene_loaded()
 {
-		has_anivis_property_ = false;
-		DzNodeListIterator nli = dzScene->nodeListIterator();
-		while (nli.hasNext()) 
-		{
-			DzNode *node = nli.next();
-			DzProperty * dz_property = node->findProperty(DzAniVisAction::property_name);
-			if (dz_property) 
-			{
-				has_anivis_property_ = true;
-				connect(dz_property, SIGNAL (currentValueChanged() ), this, SLOT(onAnivisValueChanged()));
-			}
-		}
-		on_time_changed(dzScene->getTime());
+	// Covers both opening and merging a scene: the saved properties are
+	// only complete once loading has finished.
+	rescan_scene();
+	on_time_changed(dzScene->getTime());
 }
 
-void wls_anivis_watcher::on_time_changed(const DzTime time)
+void wls_anivis_watcher::on_node_added(DzNode *node)
 {
-	if (has_anivis_property_) 
-	{
-		handling_time_change_ = true;
-        DzNodeListIterator nli = dzScene->nodeListIterator();
+	watch(anivis_property(node));
+}
 
-		while (nli.hasNext()) 
-		{
-			DzNode *node = nli.next();
-            const auto dz_anivis_property = dynamic_cast<DzBoolProperty*>(node->findProperty(DzAniVisAction::property_name));
-			if (dz_anivis_property) 
-			{
-                const bool visible = dz_anivis_property->getBoolValue(time);
-                auto dz_visibility_property = dynamic_cast<DzBoolProperty*>(node->findProperty(real_property_name_));
-				dz_visibility_property->setBoolValue(visible);
-			}
-		}
+// Daz interpolates bool keys as numbers and rounds down (whatever the key's
+// interpolation type), so between an On key and a later Off key the value
+// is already Off on the next frame. Hold each key's value until the next
+// key instead, so "On at 0, Off at 10" means visible for frames 0-9.
+static bool stepped_value(const DzBoolProperty *prop, DzTime time)
+{
+	const int count = prop->getNumKeys();
+	if (count == 0)
+		return prop->getBoolValue(time);
+
+	int index = 0; // before the first key: use the first key's value
+	for (int i = 0; i < count; ++i)
+	{
+		if (prop->getKeyTime(i) > time)
+			break;
+		index = i;
+	}
+	return prop->getKeyBoolValue(index);
+}
+
+void wls_anivis_watcher::apply(DzNode *node, DzBoolProperty *prop, DzTime time)
+{
+	DzBoolProperty *visible = node ? node->getVisibilityControl() : nullptr;
+	if (!visible || !prop)
+		return;
+	const bool on = stepped_value(prop, time);
+	if (visible->getBoolValue() != on)
+		visible->setBoolValue(on);
+}
+
+void wls_anivis_watcher::on_time_changed(DzTime time)
+{
+	handling_time_change_ = true;
+	DzNodeListIterator nli = dzScene->nodeListIterator();
+	while (nli.hasNext())
+	{
+		DzNode *node = nli.next();
+		if (DzBoolProperty *prop = anivis_property(node))
+			apply(node, prop, time);
 	}
 	handling_time_change_ = false;
 }
 
-
-void wls_anivis_watcher::on_anivis_value_changed() const
+void wls_anivis_watcher::on_anivis_value_changed()
 {
-	if (handling_time_change_) return;
+	if (handling_time_change_)
+		return;
 
-	QObject *q_sender = sender();
-    const auto dz_anivis_property = dynamic_cast<DzBoolProperty*>(q_sender);
+	auto prop = qobject_cast<DzBoolProperty*>(sender());
+	if (!prop)
+		return;
 
-    if (dz_anivis_property == nullptr) return;
-
-	DzElement *ele = dz_anivis_property->getOwner();
-
-    if (ele == nullptr) return;
-	DzProperty *dz_property = ele->findProperty("Visible");
-
-    if (dz_property == nullptr) return;
-
-    auto dz_visibility_property = dynamic_cast<DzBoolProperty*>(dz_property);
-
-    if (dz_visibility_property == nullptr) return;
-
-    dz_visibility_property->setBoolValue(dz_anivis_property->getBoolValue());
+	apply(qobject_cast<DzNode*>(prop->getOwner()), prop, dzScene->getTime());
 }

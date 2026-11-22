@@ -1,5 +1,7 @@
-# AniVis
-Plugin to animate node visibility in DAZ Studio 4.5+
+# AniVis for Daz Studio 6
+Plugin to animate node visibility in Daz Studio 6.
+
+This is a port of [fjdiazt/AniVis](https://github.com/fjdiazt/AniVis) (DAZ Studio 4.5+, Qt 4) to Daz Studio 6 (Qt 6.10, SDK 6). It also fixes a bug in the original code where the watcher's signal connections pointed at slot names that no longer existed, so the Visible property was never updated.
 
 Current version is "beta" code not "production".
 
@@ -17,41 +19,38 @@ There is NO WARRANTY, USE AT YOUR OWN RISK.
 Currently available for the Windows 64-bit platform.
 
 ## To Install
-Click the "release" link, then download the AnaVis####.zip file and extract the contents.  
+Copy `dsp_anivis.dll` into the Daz Studio 6 plugins folder (e.g. `C:\Program Files\DAZ 3D\DAZStudio6\plugins`).
 
-Copy the dll file into the DAZ Studio plugins directory (e.g. C:\Program Files\DAZ 3D\DAZStudio4\plugins).
+Restart Daz Studio if it was already running.
 
-Restart DAZ Studio if it was already running.
-
-Access Help/About Installed Plugins and verify that the list includes AniVis with "green" status.
+Open Help > About Installed Plugins and check that the list includes AniVis with "green" status.
 
 ## To Build (Optional)
-Obtain and fully install (with all pre-requisites) the DAZ Studio SDK (4.5+).
+Requirements:
 
-Ensure you are able to successfully build a sample plugin.
+- The Daz Studio 6 SDK.
+- Qt 6.10 (`msvc2022_64`), the Qt version Daz Studio 6 uses.
+- CMake 3.21+ and Visual Studio 2022 (toolset v143) or later.
 
-Download the source from this repository (clone or download and extract the zip).
+```
+cmake -S . -B build -G "Visual Studio 17 2022" -A x64 -DDAZ_SDK_DIR="C:/path/to/Daz Studio 6 SDK" -DCMAKE_PREFIX_PATH="C:/Qt/6.10.3/msvc2022_64"
+cmake --build build --config Release
+```
 
+The result is `build/Release/dsp_anivis.dll`. If MSBuild reports `FTK1011` errors, the build folder's path is too long: use a shorter `-B` folder.
 
-On Windows:
-
-Open the sln file in Visual Studio 2012 or later and build the plugin.
-
-
-Elsewhere:
-
-Create a project for your toolset and make source code mods as needed for your compiler.
+Notes for the Daz Studio 6 SDK: Windows plugins must be named `dsp_*.dll`, `anivis.def` exports `getSDKVersion` and `getPluginDefinition` by their plain names, and `DzBase::makePersistent()` is obsolete.
 
 ## To Use
 Select one or more nodes in the scene.
 
-Click the menu item Edit / Add AnaVis Property.
+Click the menu item Edit / Add AniVis Property.
 
 Select a node and move in the Timeline to the frame where you want it to disappear.
 
 Locate the Animate Visibility property under Parameters/Visibility and toggle it to Off.
 
-Move the prior frame and toggle it to On.
+Each key holds until the next key: On at frame 0 and Off at frame 10 means the node is visible for frames 0-9 and hidden from frame 10. (Daz itself rounds On/Off keys down between keys, so the plugin reads the keys directly; you do not need an extra On key on the frame before.)
 
 Note that you can also toggle back and forth in multiple frames e.g. to blink.
 
