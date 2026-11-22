@@ -1,0 +1,43 @@
+AniVis for Daz Studio 6 - installation
+======================================
+
+Requirements: Daz Studio 6 (6.26 or later) on Windows, 64-bit.
+
+
+Option 1: installer (recommended)
+---------------------------------
+1. Close Daz Studio.
+2. Run AniVis-<version>-Setup.exe and follow the steps. It finds your
+   Daz Studio 6 folder by itself; you can also install into the
+   Daz Studio 6 Public Build.
+   (Windows may warn that the installer is from an unknown publisher,
+   because it is not code-signed: click "More info" > "Run anyway".)
+3. Start Daz Studio.
+
+To uninstall: Windows Settings > Apps > Installed apps > "AniVis ... for
+Daz Studio 6" > Uninstall.
+
+
+Option 2: by hand (zip)
+-----------------------
+1. Close Daz Studio.
+2. Copy dsp_anivis.dll into the plugins folder of Daz Studio 6, normally
+       C:\Program Files\DAZ 3D\DAZStudio6\plugins
+   (Windows asks for administrator permission to copy into Program Files.)
+3. Start Daz Studio.
+
+To uninstall: close Daz Studio and delete dsp_anivis.dll from that folder.
+
+
+Check that it works
+-------------------
+- Help > About Installed Plugins lists "AniVis" with a green status.
+- Window > Panes (Tabs) > AniVis Timeline opens the AniVis Timeline pane.
+  Drag its tab next to the Timeline to keep it there.
+
+
+Using AniVis
+------------
+Toggle an item's eye icon in the Scene pane: AniVis keys its visibility at
+the current frame. The AniVis Timeline pane shows, per item, when it is
+visible (green) or hidden (red). See README.md for everything else.

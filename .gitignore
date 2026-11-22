@@ -34,3 +34,5 @@ release
 /*.vcxproj.user
 
 /build/
+/dist/
+/stage/

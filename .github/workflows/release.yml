@@ -1,0 +1,134 @@
+# Builds AniVis for Daz Studio 6 and publishes a GitHub release.
+#
+# - Push a tag like v2.3.0 (it must match "project(anivis VERSION ...)" in
+#   CMakeLists.txt): builds, packages and publishes release "AniVis 2.3.0" with
+#     AniVis-2.3.0-win64.zip      dsp_anivis.dll + INSTALL.txt + README + LICENSE + CHANGELOG
+#     AniVis-2.3.0-Setup.exe      Windows installer (finds Daz Studio 6 by itself)
+#     SHA256SUMS.txt
+# - Run it by hand (Actions > Release > Run workflow): same build, files are
+#   attached to the run as an artifact, nothing is published.
+#
+# The Daz Studio 6 SDK may not be published, so it comes from the private repo
+# jakeuncles/daz-studio-6-sdk through the read-only deploy key in the
+# DAZ_SDK_DEPLOY_KEY secret.
+
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: windows-2022   # Visual Studio 2022 (toolset v143, like Daz Studio 6)
+    steps:
+      - name: Check out AniVis
+        uses: actions/checkout@v4
+
+      - name: Check out the Daz Studio 6 SDK (private)
+        uses: actions/checkout@v4
+        with:
+          repository: jakeuncles/daz-studio-6-sdk
+          ssh-key: ${{ secrets.DAZ_SDK_DEPLOY_KEY }}
+          path: daz-sdk
+
+      - name: Install Qt 6.10.3 (the Qt version of Daz Studio 6)
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.10.3'
+          host: windows
+          target: desktop
+          arch: win64_msvc2022_64
+          cache: true
+
+      - name: Read the version
+        id: version
+        shell: pwsh
+        run: |
+          $m = Select-String -Path CMakeLists.txt -Pattern 'project\(anivis VERSION ([0-9]+\.[0-9]+\.[0-9]+)'
+          if (-not $m) { throw 'No version in CMakeLists.txt' }
+          $version = $m.Matches[0].Groups[1].Value
+          if ($env:GITHUB_REF_TYPE -eq 'tag' -and $env:GITHUB_REF_NAME -ne "v$version") {
+            throw "Tag $env:GITHUB_REF_NAME does not match version $version in CMakeLists.txt"
+          }
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "AniVis $version"
+
+      - name: Build
+        shell: pwsh
+        run: |
+          cmake -S . -B build -G "Visual Studio 17 2022" -A x64 `
+            "-DDAZ_SDK_DIR=$env:GITHUB_WORKSPACE/daz-sdk" `
+            "-DCMAKE_PREFIX_PATH=$env:QT_ROOT_DIR"
+          cmake --build build --config Release
+          if (-not (Test-Path build/Release/dsp_anivis.dll)) { throw 'dsp_anivis.dll was not built' }
+
+      - name: Package the zip
+        shell: pwsh
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          $stage = "stage/AniVis-$env:VERSION"
+          New-Item -ItemType Directory -Force $stage, dist | Out-Null
+          Copy-Item build/Release/dsp_anivis.dll, packaging/INSTALL.txt, README.md, LICENSE, CHANGELOG.md $stage
+          Compress-Archive -Path "$stage/*" -DestinationPath "dist/AniVis-$env:VERSION-win64.zip"
+
+      - name: Build the installer
+        shell: pwsh
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          $iscc = 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe'
+          if (-not (Test-Path $iscc)) {
+            choco install innosetup --no-progress -y
+          }
+          & $iscc /Qp "/DAppVersion=$env:VERSION" "/DDllPath=..\build\Release\dsp_anivis.dll" "/DOutputDir=..\dist" packaging\anivis.iss
+          if ($LASTEXITCODE -ne 0) { throw "ISCC failed with $LASTEXITCODE" }
+
+      - name: Checksums
+        shell: pwsh
+        run: |
+          Get-ChildItem dist -File | ForEach-Object {
+            "{0}  {1}" -f (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower(), $_.Name
+          } | Set-Content dist/SHA256SUMS.txt
+          Get-Content dist/SHA256SUMS.txt
+
+      - name: Upload the files to this run
+        uses: actions/upload-artifact@v4
+        with:
+          name: AniVis-${{ steps.version.outputs.version }}
+          path: dist/*
+
+      - name: Publish the release
+        if: github.ref_type == 'tag'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          # Release notes: this version's CHANGELOG section plus install steps.
+          $lines = Get-Content CHANGELOG.md
+          $start = [array]::IndexOf($lines, "## $env:VERSION")
+          $changes = @()
+          if ($start -ge 0) {
+            for ($i = $start + 1; $i -lt $lines.Count -and -not $lines[$i].StartsWith('## '); $i++) { $changes += $lines[$i] }
+          }
+          @(
+            "## What's new"
+            $changes
+            ""
+            "## Install"
+            "- **Installer:** close Daz Studio, run ``AniVis-$env:VERSION-Setup.exe``. It finds your Daz Studio 6 folder (and the Public Build). Windows may warn about an unknown publisher because the installer is not code-signed: *More info > Run anyway*."
+            "- **By hand:** close Daz Studio, copy ``dsp_anivis.dll`` from ``AniVis-$env:VERSION-win64.zip`` into ``C:\Program Files\DAZ 3D\DAZStudio6\plugins``."
+            ""
+            "Then open **Window > Panes (Tabs) > AniVis Timeline**. Requires Daz Studio 6 (6.26 or later), Windows 64-bit."
+          ) | Set-Content release-notes.md
+          gh release create $env:GITHUB_REF_NAME dist/* --title "AniVis $env:VERSION" --notes-file release-notes.md --verify-tag
