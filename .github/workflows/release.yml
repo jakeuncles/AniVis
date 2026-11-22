@@ -102,7 +102,7 @@ jobs:
           Get-Content dist/SHA256SUMS.txt
 
       - name: Upload the files to this run
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: AniVis-${{ steps.version.outputs.version }}
           path: dist/*

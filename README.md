@@ -25,6 +25,19 @@ Restart Daz Studio if it was already running.
 
 Open Help > About Installed Plugins and check that the list includes AniVis with "green" status.
 
+## Releases
+Download the latest version from the [Releases page](https://github.com/jakeuncles/AniVis/releases): `AniVis-<version>-Setup.exe` (installer) or `AniVis-<version>-win64.zip` (DLL plus install instructions).
+
+### Making a release
+1. Update the version in `CMakeLists.txt` (`project(anivis VERSION x.y.z)`) and `version.h`, and add a `## x.y.z` section to `CHANGELOG.md`.
+2. Commit and push, then tag and push the tag:
+   ```
+   git tag -a vx.y.z -m "AniVis x.y.z"
+   git push origin vx.y.z
+   ```
+3. The **Release** workflow builds the plugin on GitHub, packages the zip and the installer and publishes the release with that CHANGELOG section as notes. A tag that does not match the version in `CMakeLists.txt` fails the build.
+
+The workflow can also be run by hand (Actions > Release > Run workflow) to get the files as a build artifact without publishing anything. It needs the private `daz-studio-6-sdk` repository and its `DAZ_SDK_DEPLOY_KEY` secret, because the Daz Studio SDK may not be published.
 ## To Build (Optional)
 Requirements:
 
