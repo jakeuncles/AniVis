@@ -31,10 +31,10 @@ jobs:
     runs-on: windows-2022   # Visual Studio 2022 (toolset v143, like Daz Studio 6)
     steps:
       - name: Check out AniVis
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Check out the Daz Studio 6 SDK (private)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: jakeuncles/daz-studio-6-sdk
           ssh-key: ${{ secrets.DAZ_SDK_DEPLOY_KEY }}
@@ -102,7 +102,7 @@ jobs:
           Get-Content dist/SHA256SUMS.txt
 
       - name: Upload the files to this run
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: AniVis-${{ steps.version.outputs.version }}
           path: dist/*
