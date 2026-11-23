@@ -1,0 +1,66 @@
+title: "[Help] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Ask anything about using AniVis, or report something that does not work.
+        Check the [README](https://github.com/jakeuncles/AniVis#readme) and the [CHANGELOG](https://github.com/jakeuncles/AniVis/blob/master/CHANGELOG.md) first: your question may already be answered there.
+        When an answer solves it, mark it as the answer so others find it.
+  - type: input
+    id: plugin-version
+    attributes:
+      label: "AniVis version"
+      description: Help > About Installed Plugins in Daz Studio.
+      placeholder: "2.5.0"
+    validations:
+      required: true
+  - type: input
+    id: daz-version
+    attributes:
+      label: Daz Studio version
+      description: Help > About Daz Studio.
+      placeholder: "6.26.2026.30901"
+    validations:
+      required: true
+  - type: dropdown
+    id: kind
+    attributes:
+      label: What is it?
+      options:
+        - A question about how to do something
+        - Something does not work as described (bug)
+        - Installing or loading the plugin
+        - Speed or CPU use
+    validations:
+      required: true
+  - type: textarea
+    id: details
+    attributes:
+      label: What happens?
+      description: What you did, what you expected and what you got instead. Steps to repeat it help most.
+      placeholder: |
+        1. Load a Genesis 9 figure and a prop
+        2. ...
+        3. ...
+        Expected: ...
+        Got: ...
+    validations:
+      required: true
+  - type: textarea
+    id: scene
+    attributes:
+      label: Scene
+      description: Figures, props and number of frames involved. A small .duf that shows the problem is the best help (zip it and drop it here).
+  - type: textarea
+    id: log
+    attributes:
+      label: Log
+      description: Help > Troubleshooting > View Log File. Paste the lines around the problem (search for "AniVis").
+      render: text
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I use the latest release from the Releases page.
+        - label: I searched the existing discussions.

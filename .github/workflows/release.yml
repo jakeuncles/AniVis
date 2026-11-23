@@ -21,6 +21,7 @@ on:
 
 permissions:
   contents: write
+  discussions: write
 
 concurrency:
   group: release-${{ github.ref }}
@@ -131,4 +132,4 @@ jobs:
             ""
             "Then open **Window > Panes (Tabs) > AniVis Timeline**. Requires Daz Studio 6 (6.26 or later), Windows 64-bit."
           ) | Set-Content release-notes.md
-          gh release create $env:GITHUB_REF_NAME dist/* --title "AniVis $env:VERSION" --notes-file release-notes.md --verify-tag
+          gh release create $env:GITHUB_REF_NAME dist/* --title "AniVis $env:VERSION" --notes-file release-notes.md --discussion-category "Announcements" --verify-tag

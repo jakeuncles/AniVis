@@ -1,0 +1,23 @@
+title: "[Show] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Share a render, an animation or a scene you made with AniVis. Tips on how you did it are very welcome.
+  - type: textarea
+    id: work
+    attributes:
+      label: What you made
+      description: Drop images or a short video here, or link to where it is posted.
+    validations:
+      required: true
+  - type: textarea
+    id: how
+    attributes:
+      label: How AniVis was used
+      description: What it does in this piece, and any tips or tricks for others.
+  - type: input
+    id: plugin-version
+    attributes:
+      label: "AniVis version"
+      placeholder: "2.5.0"

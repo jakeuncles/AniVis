@@ -25,6 +25,14 @@ Restart Daz Studio if it was already running.
 
 Open Help > About Installed Plugins and check that the list includes AniVis with "green" status.
 
+## Help and feedback
+Questions, problems and ideas go to [Discussions](https://github.com/jakeuncles/AniVis/discussions):
+
+- **[Q&A](https://github.com/jakeuncles/AniVis/discussions/categories/q-a)**: how to do something, or something that does not work. Mention your AniVis and Daz Studio versions; the form asks for them.
+- **[Ideas](https://github.com/jakeuncles/AniVis/discussions/categories/ideas)**: new features and changes. Upvote the ones you want.
+- **[Show and tell](https://github.com/jakeuncles/AniVis/discussions/categories/show-and-tell)**: renders and animations made with AniVis.
+- **[Announcements](https://github.com/jakeuncles/AniVis/discussions/categories/announcements)**: every release is posted here; watch the repository (Custom > Discussions) to be notified.
+
 ## Releases
 Download the latest version from the [Releases page](https://github.com/jakeuncles/AniVis/releases): `AniVis-<version>-Setup.exe` (installer) or `AniVis-<version>-win64.zip` (DLL plus install instructions).
 
@@ -35,7 +43,7 @@ Download the latest version from the [Releases page](https://github.com/jakeuncl
    git tag -a vx.y.z -m "AniVis x.y.z"
    git push origin vx.y.z
    ```
-3. The **Release** workflow builds the plugin on GitHub, packages the zip and the installer and publishes the release with that CHANGELOG section as notes. A tag that does not match the version in `CMakeLists.txt` fails the build.
+3. The **Release** workflow builds the plugin on GitHub, packages the zip and the installer and publishes the release with that CHANGELOG section as notes, and opens an Announcements discussion for it. A tag that does not match the version in `CMakeLists.txt` fails the build.
 
 The workflow can also be run by hand (Actions > Release > Run workflow) to get the files as a build artifact without publishing anything. It needs the private `daz-studio-6-sdk` repository and its `DAZ_SDK_DEPLOY_KEY` secret, because the Daz Studio SDK may not be published.
 ## To Build (Optional)

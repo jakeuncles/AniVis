@@ -1,0 +1,11 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Question or problem
+    url: https://github.com/jakeuncles/AniVis/discussions/new?category=q-a
+    about: Ask how to do something, or report something that does not work.
+  - name: Idea or feature request
+    url: https://github.com/jakeuncles/AniVis/discussions/new?category=ideas
+    about: Suggest a new feature or a change.
+  - name: Show what you made
+    url: https://github.com/jakeuncles/AniVis/discussions/new?category=show-and-tell
+    about: Share a render or animation made with AniVis.

@@ -1,0 +1,12 @@
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Anything about AniVis that is not a question, an idea or something to show.
+        Need help or found a bug? Use **Q&A**. Have a feature in mind? Use **Ideas**.
+  - type: textarea
+    id: message
+    attributes:
+      label: Message
+    validations:
+      required: true
