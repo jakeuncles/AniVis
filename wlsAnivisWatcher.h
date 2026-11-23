@@ -17,6 +17,7 @@
 **********************************************************************/
 #pragma once
 
+#include <QtCore/QElapsedTimer>
 #include <QtCore/QList>
 #include <QtCore/QObject>
 #include <QtCore/QPointer>
@@ -105,6 +106,8 @@ private:
 	void on_scene_cleared();
 	void on_node_added(DzNode *node);
 	void on_time_changed(DzTime time);
+	void apply_all(DzTime time);
+	void apply_deferred();
 	void on_anivis_value_changed();
 	void on_visible_changed();
 
@@ -116,4 +119,10 @@ private:
 	bool auto_add_ = true;
 	bool applying_ = false;  // AniVis itself is changing Visible
 	bool handling_time_change_ = false;
+
+	// Hiding or showing an item costs Daz 50-200 ms (viewport and Scene
+	// pane updates). While a time slider is dragged, apply at most every
+	// c_drag_interval_ms and once more where the drag stops.
+	QElapsedTimer last_apply_;
+	bool deferred_scheduled_ = false;
 };

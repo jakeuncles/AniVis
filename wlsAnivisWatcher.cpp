@@ -20,6 +20,7 @@
 
 #include <QtCore/QTimer>
 #include <QtGui/QColor>
+#include <QtGui/QGuiApplication>
 
 #include "dzapp.h"
 #include "dzappsettings.h"
@@ -36,6 +37,9 @@ const QString wls_anivis_watcher::property_name = "AnimateVisibility";
 
 static const char *settings_path = "AniVis";
 static const char *auto_add_key = "AddWhenToggled";
+
+// While a time slider is dragged: at most this often (~10 per second).
+static const int c_drag_interval_ms = 100;
 
 // ---------------------------------------------------------------------------
 // helpers
@@ -391,13 +395,43 @@ void wls_anivis_watcher::apply(DzBoolProperty *prop, DzTime time)
 
 void wls_anivis_watcher::refresh()
 {
-	on_time_changed(dzScene->getTime());
+	if (scene_usable())
+		apply_all(dzScene->getTime());
 }
 
 void wls_anivis_watcher::on_time_changed(DzTime time)
 {
 	if (!scene_usable())
 		return;
+	// Dragging a time slider (the Timeline, the AniVis pane, ...) sends a
+	// time change per mouse move. Hiding or showing items is slow in Daz, so
+	// apply at most every c_drag_interval_ms and again where the drag stops.
+	// Playback, renders, scripts and single clicks/steps apply right away.
+	const bool dragging = !dzScene->isPlaying()
+		&& QGuiApplication::mouseButtons() != Qt::NoButton;
+	if (dragging && last_apply_.isValid() && last_apply_.elapsed() < c_drag_interval_ms)
+	{
+		if (!deferred_scheduled_)
+		{
+			deferred_scheduled_ = true;
+			QTimer::singleShot(c_drag_interval_ms - int(last_apply_.elapsed()), this,
+				&wls_anivis_watcher::apply_deferred);
+		}
+		return;
+	}
+	apply_all(time);
+}
+
+void wls_anivis_watcher::apply_deferred()
+{
+	deferred_scheduled_ = false;
+	if (scene_usable())
+		apply_all(dzScene->getTime());
+}
+
+void wls_anivis_watcher::apply_all(DzTime time)
+{
+	last_apply_.start();
 	handling_time_change_ = true;
 	bool stale = false;
 	for (const QPointer<DzBoolProperty> &prop : tracked_)
@@ -420,8 +454,20 @@ void wls_anivis_watcher::on_anivis_value_changed()
 {
 	if (handling_time_change_ || !scene_usable())
 		return;
-	// The user changed "Animate Visibility": show the result right away.
-	apply(qobject_cast<DzBoolProperty*>(sender()), dzScene->getTime());
+	auto prop = qobject_cast<DzBoolProperty*>(sender());
+	if (!prop)
+		return;
+	if (is_animated(prop))
+	{
+		// Daz re-evaluates animated properties when the time changes; that
+		// is handled (and throttled) by on_time_changed. Edits to the keys
+		// arrive through valueChanged, which notifies the pane.
+		if (!deferred_scheduled_)
+			apply(prop, dzScene->getTime());
+		return;
+	}
+	// The user changed a constant "Animate Visibility": show it right away.
+	apply(prop, dzScene->getTime());
 	notify();
 }
 

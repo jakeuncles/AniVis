@@ -1,5 +1,8 @@
 # Changelog
 
+## 2.3.2
+- Much lighter scrubbing: hiding or showing an item takes Daz 50-200 ms (viewport and Scene pane updates), and dragging a time slider used to do that for every frame passed. While you drag, AniVis now updates visibility about 10 times a second and exactly where you stop. Playback, stepping frames, renders and scripts still update every frame.
+
 ## 2.3.1
 - AniVis Timeline is frame-accurate: the current-frame line, key diamonds, ticks and frame numbers all sit on the middle of their frame (the line used to be half a frame off the keys).
 - Each frame of the bars shows exactly the visibility AniVis applies on that frame; a key between two frames shows on the frame where it takes effect.
