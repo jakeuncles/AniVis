@@ -13,6 +13,7 @@
 
 #include <QtCore/QHash>
 #include <QtCore/QTimer>
+#include <QtGui/QContextMenuEvent>
 #include <QtGui/QMouseEvent>
 #include <QtGui/QPainter>
 #include <QtGui/QPainterPath>
@@ -20,6 +21,7 @@
 #include <QtWidgets/QCheckBox>
 #include <QtWidgets/QHBoxLayout>
 #include <QtWidgets/QLabel>
+#include <QtWidgets/QMenu>
 #include <QtWidgets/QPushButton>
 #include <QtWidgets/QScrollBar>
 #include <QtWidgets/QVBoxLayout>
@@ -29,6 +31,7 @@
 #include "dznode.h"
 #include "dzscene.h"
 #include "dztimerange.h"
+#include "dzundostack.h"
 
 #include "wlsAnivisWatcher.h"
 
@@ -90,8 +93,75 @@ DzAniVisTimelineView::DzAniVisTimelineView(QWidget *parent) :
 	QWidget(parent)
 {
 	setMinimumHeight(c_ruler_h + 2 * c_row_h);
-	setMouseTracking(false);
+	setMouseTracking(true); // a sideways cursor over keys: they can be dragged
 	setFocusPolicy(Qt::NoFocus);
+}
+
+DzAniVisTimelineView::~DzAniVisTimelineView()
+{
+	end_key_drag();
+}
+
+int DzAniVisTimelineView::frame_at(int x) const
+{
+	DzTime start, end, step;
+	view_range(start, end, step);
+	const QRect bars = bars_rect();
+	const int frames = int((end - start) / step) + 1;
+	// Each frame is one cell; this is the cell under x.
+	return qBound(0, int(std::floor(double(x - bars.left()) * frames / bars.width())), frames - 1);
+}
+
+DzTime DzAniVisTimelineView::time_of(int frame) const
+{
+	DzTime start, end, step;
+	view_range(start, end, step);
+	return start + DzTime(frame) * step;
+}
+
+int DzAniVisTimelineView::key_at(const QPoint &pos, int row) const
+{
+	DzNode *node = node_at_row(row);
+	const DzBoolProperty *prop = wls_anivis_watcher::active_property(node);
+	if (!wls_anivis_watcher::is_animated(prop) || !scene_usable())
+		return -1;
+	DzTime start, end, step;
+	view_range(start, end, step);
+	const QRect bars = bars_rect();
+	const int frames = int((end - start) / step) + 1;
+	const double px_per_frame = double(bars.width()) / frames;
+	const double reach = qMax(5.0, px_per_frame / 2);
+	int best = -1;
+	double best_d = reach + 1;
+	for (int k = 0; k < prop->getNumKeys(); ++k)
+	{
+		const int f = frame_of(prop->getKeyTime(k), start, step, true);
+		if (f < 0 || f >= frames)
+			continue;
+		const double d = std::abs(bars.left() + (f + 0.5) * px_per_frame - pos.x());
+		if (d <= reach && d < best_d)
+		{
+			best = k;
+			best_d = d;
+		}
+	}
+	return best;
+}
+
+void DzAniVisTimelineView::end_key_drag()
+{
+	if (drag_hold_ && scene_usable() && dzUndoStack)
+	{
+		if (drag_moved_)
+			dzUndoStack->accept(tr("AniVis Move Key"));
+		else
+			dzUndoStack->drop();
+	}
+	drag_hold_ = false;
+	drag_moved_ = false;
+	drag_key_ = -1;
+	drag_node_ = nullptr;
+	update();
 }
 
 void DzAniVisTimelineView::set_rows(const QList<AniVisRow> &rows)
@@ -159,13 +229,7 @@ void DzAniVisTimelineView::scrub_to(int x)
 {
 	if (!scene_usable())
 		return;
-	DzTime start, end, step;
-	view_range(start, end, step);
-	const QRect bars = bars_rect();
-	const int frames = int((end - start) / step) + 1;
-	// Each frame is one cell; the click picks the cell under the mouse.
-	const int frame = qBound(0, int(std::floor(double(x - bars.left()) * frames / bars.width())), frames - 1);
-	const DzTime t = start + DzTime(frame) * step;
+	const DzTime t = time_of(frame_at(x));
 	if (t != dzScene->getTime())
 		dzScene->setTime(t);
 }
@@ -325,9 +389,23 @@ void DzAniVisTimelineView::paintEvent(QPaintEvent *)
 				if (f < 0 || f >= frames)
 					continue;
 				const double cx = cell_mid(f);
+				const bool dragged = drag_hold_ && node == drag_node_ && k == drag_key_;
+				const double r = dragged ? 7 : 5;
 				QPolygonF diamond;
-				diamond << QPointF(cx, cy - 5) << QPointF(cx + 4, cy) << QPointF(cx, cy + 5) << QPointF(cx - 4, cy);
-				p.drawPolygon(diamond);
+				diamond << QPointF(cx, cy - r) << QPointF(cx + r - 1, cy) << QPointF(cx, cy + r) << QPointF(cx - r + 1, cy);
+				if (dragged)
+				{
+					p.setBrush(c_now);
+					p.drawPolygon(diamond);
+					// The frame it will land on.
+					p.setPen(text);
+					p.drawText(QRectF(cx + 8, y, 60, c_row_h), Qt::AlignVCenter | Qt::AlignLeft,
+						QString::number(first_frame + f));
+					p.setPen(QPen(QColor(40, 40, 40), 1));
+					p.setBrush(c_key);
+				}
+				else
+					p.drawPolygon(diamond);
 			}
 		}
 		p.setRenderHint(QPainter::Antialiasing, false);
@@ -355,7 +433,24 @@ void DzAniVisTimelineView::mousePressEvent(QMouseEvent *e)
 		return;
 	int row = -1;
 	const QPoint pos = e->position().toPoint();
-	switch (area_at(pos, &row))
+	const Area area = area_at(pos, &row);
+	if (area == Bars && row >= 0)
+	{
+		const int key = key_at(pos, row);
+		if (key >= 0 && dzUndoStack)
+		{
+			// Press on a key: drag it (one undo step). Without moving, the
+			// click only goes to its frame.
+			drag_node_ = node_at_row(row);
+			drag_key_ = key;
+			drag_moved_ = false;
+			drag_hold_ = true;
+			dzUndoStack->beginHold();
+			update();
+			return;
+		}
+	}
+	switch (area)
 	{
 	case Ruler:
 	case Bars:
@@ -388,13 +483,157 @@ void DzAniVisTimelineView::mousePressEvent(QMouseEvent *e)
 
 void DzAniVisTimelineView::mouseMoveEvent(QMouseEvent *e)
 {
+	const QPoint pos = e->position().toPoint();
+	if (drag_hold_)
+	{
+		DzNode *node = drag_node_.data();
+		if (!node || !scene_usable())
+		{
+			end_key_drag();
+			return;
+		}
+		const DzBoolProperty *prop = wls_anivis_watcher::active_property(node);
+		if (!prop || drag_key_ >= prop->getNumKeys())
+		{
+			end_key_drag();
+			return;
+		}
+		const DzTime to = time_of(frame_at(pos.x()));
+		if (to != prop->getKeyTime(drag_key_))
+		{
+			// A frame that already has a key is skipped: the key stays put.
+			const int moved = watcher()->move_key(node, drag_key_, to);
+			if (moved >= 0)
+			{
+				drag_key_ = moved;
+				drag_moved_ = true;
+				update();
+			}
+		}
+		return;
+	}
 	if (scrubbing_)
-		scrub_to(e->position().toPoint().x());
+	{
+		scrub_to(pos.x());
+		return;
+	}
+	// Hovering: a sideways cursor over keys.
+	int row = -1;
+	const bool over_key = area_at(pos, &row) == Bars && row >= 0 && key_at(pos, row) >= 0;
+	setCursor(over_key ? Qt::SizeHorCursor : Qt::ArrowCursor);
 }
 
-void DzAniVisTimelineView::mouseReleaseEvent(QMouseEvent *)
+void DzAniVisTimelineView::mouseReleaseEvent(QMouseEvent *e)
 {
 	scrubbing_ = false;
+	if (!drag_hold_)
+		return;
+	const bool moved = drag_moved_;
+	DzNode *node = drag_node_.data();
+	const int key = drag_key_;
+	end_key_drag();
+	if (!moved && node && scene_usable())
+	{
+		// A click on a key: go to its frame.
+		const DzBoolProperty *prop = wls_anivis_watcher::active_property(node);
+		if (prop && key >= 0 && key < prop->getNumKeys())
+			scrub_to(e->position().toPoint().x());
+	}
+}
+
+void DzAniVisTimelineView::contextMenuEvent(QContextMenuEvent *e)
+{
+	if (!scene_usable() || drag_hold_)
+		return;
+	const QPoint pos = e->pos();
+	int row = -1;
+	const Area area = area_at(pos, &row);
+	if (area == Nowhere)
+		return;
+	DzNode *node = node_at_row(row);
+	const int frame = frame_at(pos.x());
+	const DzTime time = time_of(frame);
+	DzTime start, end, step;
+	view_range(start, end, step);
+	const int frame_no = int(start / step) + frame;
+	const bool on_timeline = area == Bars || area == Ruler;
+	const int key = (area == Bars && row >= 0) ? key_at(pos, row) : -1;
+
+	QMenu menu(this);
+	QPointer<DzNode> guard(node);
+
+	if (key >= 0 && node)
+	{
+		const DzBoolProperty *prop = wls_anivis_watcher::active_property(node);
+		const int key_frame = frame_of(prop->getKeyTime(key), start, step, true) + int(start / step);
+		const bool value = prop->getKeyBoolValue(key);
+		menu.addSection(tr("Key at frame %1").arg(key_frame));
+		QAction *vis = menu.addAction(tr("Visible from Here"));
+		vis->setCheckable(true);
+		vis->setChecked(value);
+		connect(vis, &QAction::triggered, this, [guard, key]() {
+			if (guard && scene_usable()) watcher()->set_key(guard, key, true);
+		});
+		QAction *hid = menu.addAction(tr("Hidden from Here"));
+		hid->setCheckable(true);
+		hid->setChecked(!value);
+		connect(hid, &QAction::triggered, this, [guard, key]() {
+			if (guard && scene_usable()) watcher()->set_key(guard, key, false);
+		});
+		menu.addSeparator();
+		connect(menu.addAction(tr("Delete Key")), &QAction::triggered, this, [guard, key]() {
+			if (guard && scene_usable()) watcher()->delete_key(guard, key);
+		});
+		const DzTime key_time = prop->getKeyTime(key);
+		connect(menu.addAction(tr("Go to Frame %1").arg(key_frame)), &QAction::triggered, this, [key_time, start, step]() {
+			if (scene_usable()) dzScene->setTime(start + DzTime(frame_of(key_time, start, step, true)) * step);
+		});
+	}
+	else
+	{
+		if (node && wls_anivis_watcher::is_candidate(node))
+		{
+			menu.addSection(node->getLabel());
+			if (on_timeline)
+			{
+				connect(menu.addAction(tr("Key Visible at Frame %1").arg(frame_no)), &QAction::triggered, this,
+					[guard, time]() { if (guard && scene_usable()) watcher()->key_at(guard, time, true); });
+				connect(menu.addAction(tr("Key Hidden at Frame %1").arg(frame_no)), &QAction::triggered, this,
+					[guard, time]() { if (guard && scene_usable()) watcher()->key_at(guard, time, false); });
+			}
+		}
+		if (on_timeline)
+			connect(menu.addAction(tr("Go to Frame %1").arg(frame_no)), &QAction::triggered, this, [time]() {
+				if (scene_usable()) dzScene->setTime(time);
+			});
+	}
+
+	if (node && wls_anivis_watcher::is_candidate(node))
+	{
+		const DzBoolProperty *prop = wls_anivis_watcher::active_property(node);
+		menu.addSeparator();
+		connect(menu.addAction(tr("Select %1").arg(node->getLabel())), &QAction::triggered, this, [guard]() {
+			if (!guard || !scene_usable()) return;
+			dzScene->selectAllNodes(false);
+			guard->select(true);
+		});
+		if (wls_anivis_watcher::is_animated(prop))
+			connect(menu.addAction(tr("Clear Keys")), &QAction::triggered, this, [guard]() {
+				if (guard && scene_usable()) watcher()->clear_keys(guard);
+			});
+		if (prop)
+			connect(menu.addAction(tr("Remove AniVis")), &QAction::triggered, this, [guard]() {
+				if (guard && scene_usable()) watcher()->remove_property(guard);
+			});
+		else
+			connect(menu.addAction(tr("Add AniVis")), &QAction::triggered, this, [guard]() {
+				if (guard && scene_usable()) watcher()->ensure_property(guard);
+			});
+	}
+
+	if (!menu.isEmpty())
+		menu.exec(e->globalPos());
+	e->accept();
 }
 
 void DzAniVisTimelineView::wheelEvent(QWheelEvent *e)
@@ -663,7 +902,8 @@ void DzAniVisPane::rebuild()
 		summary_->setText(tr("Toggle an item's eye icon in the Scene pane to key its visibility at the current frame."));
 	else
 		summary_->setText(tr("%1 item(s) with Animate Visibility, %2 animated. Click or drag the bars "
-			"to move the timeline; click Now to toggle at the current frame.")
+			"to move the timeline, drag a key to move it, right-click for more; click Now to toggle "
+			"at the current frame.")
 			.arg(with_property).arg(animated));
 }
 

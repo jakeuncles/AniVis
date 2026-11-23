@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.5.0
+- AniVis Timeline: drag a key (yellow diamond) to another frame; click a key to go to its frame. Right-click a key to make it visible or hidden, delete it or go to it; right-click a bar to key the item visible or hidden at that frame; right-click any row to select the item, clear its keys, or remove or add AniVis.
+- Fixed items staying hidden for good when the Animate Visibility property was deleted outright (e.g. from the Parameters pane) while the item was hidden. The item is shown again, as with Remove Property.
+- AniVis edits (keying, toggling with the eye icon, Clear Keys, Remove/Add Property, moving keys) are now steps in Edit > Undo. Before, Undo skipped them and undid whatever came before (even the scene load). Undo and Redo bring back the visibility animation exactly, also of a deleted property.
+- Undo or Redo of an eye-icon toggle no longer adds a key of its own.
+
 ## 2.4.0
 - **Key Visibility When Toggled** checkbox in the AniVis Timeline pane, next to All items. It is the same setting as Edit > AniVis > Key Visibility When Toggled; the two stay in step.
 

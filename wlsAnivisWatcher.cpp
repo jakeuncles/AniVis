@@ -32,6 +32,7 @@
 #include "dzboolproperty.h"
 #include "dzpresentation.h"
 #include "dztimerange.h"
+#include "dzundostack.h"
 
 const QString wls_anivis_watcher::property_name = "AnimateVisibility";
 
@@ -97,6 +98,38 @@ static DzNode *owner_node(const DzBoolProperty *prop)
 	return prop ? qobject_cast<DzNode*>(prop->getOwner()) : nullptr;
 }
 
+// Daz is undoing or redoing: it restores keys, the removed flag and Visible
+// itself, so AniVis must not react with edits of its own.
+static bool in_undo_redo()
+{
+	return dzUndoStack && dzUndoStack->isInUndoRedo();
+}
+
+// One undo step (Edit > Undo) for everything done while it exists. Steps
+// nest: inside another step (e.g. Daz's own eye-icon toggle) they merge.
+namespace {
+class UndoStep
+{
+public:
+	explicit UndoStep(const QString &caption) : caption_(caption)
+	{
+		active_ = dzUndoStack && !in_undo_redo();
+		if (active_)
+			dzUndoStack->beginHold();
+	}
+	~UndoStep()
+	{
+		if (active_)
+			dzUndoStack->accept(caption_);
+	}
+	UndoStep(const UndoStep &) = delete;
+	UndoStep &operator=(const UndoStep &) = delete;
+private:
+	QString caption_;
+	bool active_ = false;
+};
+} // namespace
+
 void wls_anivis_watcher::set_visible(DzNode *node, bool on)
 {
 	DzBoolProperty *visible = node ? node->getVisibilityControl() : nullptr;
@@ -145,6 +178,17 @@ void wls_anivis_watcher::hook_scene()
 	connect(dzScene, &DzScene::sceneCleared, this, &wls_anivis_watcher::on_scene_cleared);
 	connect(dzScene, &DzScene::nodeAdded, this, &wls_anivis_watcher::on_node_added);
 	connect(dzScene, &DzScene::timeChanged, this, &wls_anivis_watcher::on_time_changed);
+	// Undo of a deleted property puts it back without any signal: after an
+	// Undo or Redo, pick up what came back and show it at this frame.
+	if (dzUndoStack)
+	{
+		auto after_undo = [this]() {
+			if (dzUndoStack->canRedo() || in_undo_redo())
+				schedule_refresh();
+		};
+		connect(dzUndoStack, &DzUndoStack::undoCaptionChanged, this, after_undo);
+		connect(dzUndoStack, &DzUndoStack::redoCaptionChanged, this, after_undo);
+	}
 
 	// Nodes already in the scene when the plugin started.
 	DzNodeListIterator nli = dzScene->nodeListIterator();
@@ -206,6 +250,7 @@ DzBoolProperty *wls_anivis_watcher::ensure_property(DzNode *node)
 {
 	if (!node)
 		return nullptr;
+	UndoStep undo("AniVis Add Property");
 
 	DzBoolProperty *visible = node->getVisibilityControl();
 	const bool visible_now = visible ? visible->getBoolValue() : true;
@@ -247,10 +292,13 @@ bool wls_anivis_watcher::remove_property(DzNode *node)
 	DzBoolProperty *prop = active_property(node);
 	if (!prop)
 		return false;
+	UndoStep undo("AniVis Remove Property");
 
 	// Hide first so the value changes below are not mirrored.
 	prop->setHidden(true);
+	handling_time_change_ = true;
 	set_constant(prop, true);
+	handling_time_change_ = false;
 	set_visible(node, true);
 	notify();
 	return true;
@@ -261,6 +309,7 @@ bool wls_anivis_watcher::clear_keys(DzNode *node)
 	DzBoolProperty *prop = active_property(node);
 	if (!is_animated(prop))
 		return false;
+	UndoStep undo("AniVis Clear Keys");
 	handling_time_change_ = true; // do not mirror the intermediate values
 	set_constant(prop, true);
 	handling_time_change_ = false;
@@ -275,13 +324,8 @@ void wls_anivis_watcher::key_visibility(DzNode *node, bool visible)
 	key_visibility(node, visible, vis ? vis->getBoolValue() : true);
 }
 
-void wls_anivis_watcher::key_visibility(DzNode *node, bool visible, bool before)
+void wls_anivis_watcher::key_in_place(DzBoolProperty *prop, DzTime time, bool visible, bool before)
 {
-	DzBoolProperty *prop = ensure_property(node);
-	if (!prop)
-		return;
-
-	const DzTime now = dzScene->getTime();
 	const DzTime start = dzScene->getAnimRange().getStart();
 
 	handling_time_change_ = true; // apply once, at the end
@@ -290,14 +334,86 @@ void wls_anivis_watcher::key_visibility(DzNode *node, bool visible, bool before)
 	if (!is_animated(prop))
 	{
 		prop->deleteAllKeys();
-		if (now > start && before != visible)
+		if (time > start && before != visible)
 			prop->setBoolValue(start, before);
 	}
-	prop->setBoolValue(now, visible);
+	prop->setBoolValue(time, visible);
 	handling_time_change_ = false;
 
-	apply(prop, now);
+	apply(prop, dzScene->getTime());
 	notify();
+}
+
+void wls_anivis_watcher::key_visibility(DzNode *node, bool visible, bool before)
+{
+	UndoStep undo(visible ? "AniVis Key Visible" : "AniVis Key Hidden");
+	DzBoolProperty *prop = ensure_property(node);
+	if (!prop)
+		return;
+	key_in_place(prop, dzScene->getTime(), visible, before);
+}
+
+void wls_anivis_watcher::key_at(DzNode *node, DzTime time, bool visible)
+{
+	UndoStep undo(visible ? "AniVis Key Visible" : "AniVis Key Hidden");
+	DzBoolProperty *prop = ensure_property(node);
+	if (!prop)
+		return;
+	// A first key at a later frame keeps the current look before it.
+	const bool before = is_animated(prop) ? value_at(prop, time) : prop->getBoolValue();
+	key_in_place(prop, time, visible, before);
+}
+
+bool wls_anivis_watcher::delete_key(DzNode *node, int index)
+{
+	DzBoolProperty *prop = active_property(node);
+	if (!prop || index < 0 || index >= prop->getNumKeys())
+		return false;
+	UndoStep undo("AniVis Delete Key");
+	handling_time_change_ = true;
+	prop->deleteKeys(index, index);
+	handling_time_change_ = false;
+	apply(prop, dzScene->getTime());
+	notify();
+	return true;
+}
+
+bool wls_anivis_watcher::set_key(DzNode *node, int index, bool visible)
+{
+	DzBoolProperty *prop = active_property(node);
+	if (!prop || index < 0 || index >= prop->getNumKeys())
+		return false;
+	if (prop->getKeyBoolValue(index) == visible)
+		return true;
+	UndoStep undo(visible ? "AniVis Key Visible" : "AniVis Key Hidden");
+	handling_time_change_ = true;
+	prop->setKeyBoolValue(index, visible);
+	handling_time_change_ = false;
+	apply(prop, dzScene->getTime());
+	notify();
+	return true;
+}
+
+int wls_anivis_watcher::move_key(DzNode *node, int index, DzTime to)
+{
+	DzBoolProperty *prop = active_property(node);
+	if (!prop || index < 0 || index >= prop->getNumKeys())
+		return -1;
+	if (prop->getKeyTime(index) == to)
+		return index;
+	int existing = -1;
+	if (prop->isKey(to, existing))
+		return -1;
+	const bool value = prop->getKeyBoolValue(index);
+	handling_time_change_ = true;
+	prop->deleteKeys(index, index);
+	prop->setBoolValue(to, value);
+	handling_time_change_ = false;
+	int moved = -1;
+	prop->isKey(to, moved);
+	apply(prop, dzScene->getTime());
+	notify();
+	return moved;
 }
 
 // ---------------------------------------------------------------------------
@@ -310,7 +426,62 @@ void wls_anivis_watcher::watch_node(DzNode *node)
 	if (DzBoolProperty *vis = node->getVisibilityControl())
 		connect(vis, &DzProperty::currentValueChanged, this,
 			&wls_anivis_watcher::on_visible_changed, Qt::UniqueConnection);
+	// The property can also be deleted outright (Parameters pane, scripts)
+	// and come back with Undo.
+	connect(node, &DzElement::propertyAdded, this,
+		&wls_anivis_watcher::on_property_added, Qt::UniqueConnection);
+	connect(node, &DzElement::propertyRemoved, this,
+		&wls_anivis_watcher::on_property_removed, Qt::UniqueConnection);
 	track(anivis_property(node));
+}
+
+void wls_anivis_watcher::on_property_added(DzProperty *p)
+{
+	auto prop = qobject_cast<DzBoolProperty*>(p);
+	if (!prop || prop->getName() != property_name || !scene_usable())
+		return;
+	track(prop);
+	schedule_refresh();
+	notify();
+}
+
+void wls_anivis_watcher::on_property_removed(DzProperty *p)
+{
+	auto prop = qobject_cast<DzBoolProperty*>(p);
+	if (!prop || prop->getName() != property_name || !scene_usable())
+		return;
+	tracked_.removeAll(QPointer<DzBoolProperty>(prop));
+	disconnect(prop, nullptr, this, nullptr);
+	// Deleted while it drove Visible: the item would keep whatever it showed
+	// at that moment, possibly hidden for good. Show it, as Remove does.
+	// (Undo restores Visible itself; a file being loaded is left alone.)
+	DzNode *node = qobject_cast<DzNode*>(sender());
+	if (node && !prop->isHidden() && !in_undo_redo() && !dzScene->isLoading())
+		set_visible(node, true);
+	notify();
+}
+
+void wls_anivis_watcher::on_anivis_edited()
+{
+	// Keys added, moved or deleted (also from Daz's Timeline), removed or
+	// restored. After Undo/Redo, show the restored animation at this frame.
+	if (in_undo_redo())
+		schedule_refresh();
+	notify();
+}
+
+void wls_anivis_watcher::schedule_refresh()
+{
+	if (refresh_scheduled_)
+		return;
+	refresh_scheduled_ = true;
+	QTimer::singleShot(0, this, [this]() {
+		refresh_scheduled_ = false;
+		if (!scene_usable() || dzScene->isLoading())
+			return;
+		rescan_scene(); // properties that came back (Undo) are tracked again
+		refresh();
+	});
 }
 
 void wls_anivis_watcher::track(DzBoolProperty *prop)
@@ -325,9 +496,9 @@ void wls_anivis_watcher::track(DzBoolProperty *prop)
 		&wls_anivis_watcher::on_anivis_value_changed, Qt::UniqueConnection);
 	// Keys added, moved or deleted (also from the timeline) and removal.
 	connect(prop, &DzProperty::valueChanged, this,
-		&wls_anivis_watcher::notify, Qt::UniqueConnection);
+		&wls_anivis_watcher::on_anivis_edited, Qt::UniqueConnection);
 	connect(prop, &DzProperty::hiddenChanged, this,
-		&wls_anivis_watcher::notify, Qt::UniqueConnection);
+		&wls_anivis_watcher::on_anivis_edited, Qt::UniqueConnection);
 }
 
 void wls_anivis_watcher::rescan_scene()
@@ -455,7 +626,7 @@ void wls_anivis_watcher::apply_all(DzTime time)
 
 void wls_anivis_watcher::on_anivis_value_changed()
 {
-	if (handling_time_change_ || !scene_usable())
+	if (handling_time_change_ || !scene_usable() || in_undo_redo())
 		return;
 	auto prop = qobject_cast<DzBoolProperty*>(sender());
 	if (!prop)
@@ -476,8 +647,10 @@ void wls_anivis_watcher::on_anivis_value_changed()
 
 void wls_anivis_watcher::on_visible_changed()
 {
-	// Only real toggles: not AniVis's own changes and not file loading.
-	if (applying_ || handling_time_change_ || !auto_add_ || !scene_usable() || dzScene->isLoading())
+	// Only real toggles: not AniVis's own changes, not file loading, and not
+	// Undo/Redo putting an earlier eye-icon state back.
+	if (applying_ || handling_time_change_ || !auto_add_ || !scene_usable() || dzScene->isLoading()
+		|| in_undo_redo())
 		return;
 
 	auto vis = qobject_cast<DzBoolProperty*>(sender());

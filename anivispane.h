@@ -37,6 +37,7 @@ class DzAniVisTimelineView : public QWidget {
 	Q_OBJECT
 public:
 	explicit DzAniVisTimelineView(QWidget *parent = nullptr);
+	~DzAniVisTimelineView() override;
 
 	void set_rows(const QList<AniVisRow> &rows);
 	void set_scroll(int first_row);
@@ -53,6 +54,7 @@ protected:
 	void mouseReleaseEvent(QMouseEvent *e) override;
 	void wheelEvent(QWheelEvent *e) override;
 	void resizeEvent(QResizeEvent *e) override;
+	void contextMenuEvent(QContextMenuEvent *e) override;
 
 private:
 	enum Area { Nowhere, Ruler, Name, Eye, Bars };
@@ -61,11 +63,23 @@ private:
 	void layout_columns();
 	void scrub_to(int x);
 	DzNode *node_at_row(int row) const;
+	// The frame (index from the start of the view) under x.
+	int frame_at(int x) const;
+	DzTime time_of(int frame) const;
+	// The key of `row` drawn under `pos`, or -1.
+	int key_at(const QPoint &pos, int row) const;
+	void end_key_drag();
 
 	QList<AniVisRow> rows_;
 	int first_row_ = 0;
 	int name_width_ = 160;
 	bool scrubbing_ = false;
+
+	// Dragging a key: one undo step for the whole drag.
+	QPointer<DzNode> drag_node_;
+	int drag_key_ = -1;
+	bool drag_moved_ = false;
+	bool drag_hold_ = false;
 };
 
 // The "AniVis Timeline" pane: Window > Panes (Tabs) > AniVis Timeline.

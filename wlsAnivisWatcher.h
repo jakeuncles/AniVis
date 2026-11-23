@@ -26,6 +26,7 @@
 
 class DzNode;
 class DzBoolProperty;
+class DzProperty;
 
 // Keeps each node's real "Visible" property in step with its animated
 // "AnimateVisibility" property whenever the scene time changes.
@@ -79,6 +80,18 @@ public:
 	void key_visibility(DzNode *node, bool visible, bool before);
 	void key_visibility(DzNode *node, bool visible);
 
+	// Key editing from the AniVis Timeline. Each is one undo step, except
+	// move_key, which the caller wraps (a drag is one undo step).
+	// Keys the node visible/hidden at `time` (any frame), adding the property.
+	void key_at(DzNode *node, DzTime time, bool visible);
+	// Deletes key `index`. One key left = a constant: the node shows it.
+	bool delete_key(DzNode *node, int index);
+	// Sets key `index` to visible/hidden.
+	bool set_key(DzNode *node, int index, bool visible);
+	// Moves key `index` to `to`. Returns its new index, or -1 when another
+	// key is already there (nothing changes then).
+	int  move_key(DzNode *node, int index, DzTime to);
+
 	// Re-applies every animated property at the current time.
 	void refresh();
 
@@ -111,13 +124,19 @@ private:
 	void apply_all(DzTime time);
 	void apply_deferred();
 	void on_anivis_value_changed();
+	void on_anivis_edited();
 	void on_visible_changed();
+	void on_property_added(DzProperty *prop);
+	void on_property_removed(DzProperty *prop);
+	void schedule_refresh();
+	void key_in_place(DzBoolProperty *prop, DzTime time, bool visible, bool before);
 
 	QList<QPointer<DzBoolProperty>> tracked_;
 	QList<QPointer<DzNode>> pending_;
 	bool hooked_ = false;
 	bool flush_scheduled_ = false;
 	bool notify_scheduled_ = false;
+	bool refresh_scheduled_ = false;
 	bool auto_add_ = true;
 	bool applying_ = false;  // AniVis itself is changing Visible
 	bool handling_time_change_ = false;

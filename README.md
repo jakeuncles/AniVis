@@ -3,7 +3,7 @@ Plugin to animate node visibility in Daz Studio 6.
 
 This is a port of [fjdiazt/AniVis](https://github.com/fjdiazt/AniVis) (DAZ Studio 4.5+, Qt 4) to Daz Studio 6 (Qt 6.10, SDK 6). It also fixes a bug in the original code where the watcher's signal connections pointed at slot names that no longer existed, so the Visible property was never updated.
 
-Version 2.4. Tested on Daz Studio 6.26 (Windows) with Genesis 9.
+Version 2.5. Tested on Daz Studio 6.26 (Windows) with Genesis 9.
 
 ## Terms
 Licensed under Mozilla Public License Version 2.0 (MPL).
@@ -76,8 +76,11 @@ It has a frame ruler like the Timeline and one row per item with Animate Visibil
 | Item | The figure, clothing, hair, prop or light. Click to select it (Ctrl/Shift-click to add to the selection). |
 | Now | Whether it is visible at the current frame. Click it to toggle (and key) the item at the current frame. |
 | Bar | The whole animation: green where the item is visible, red where it is hidden, yellow diamonds for keys and a white line for the current frame. Click or drag on the bars or the ruler to move the timeline. "not animated" means one value for the whole animation. |
+| Keys | Drag a yellow diamond to move the key to another frame (frames that already have a key are skipped); click it to go to its frame. Edit > Undo undoes the whole drag. |
 
 The buttons act on the selected items: **Key Visible**, **Key Hidden** (at the current frame), **Clear Keys** and **Remove**. **Key Visibility When Toggled** (top right) turns keying on eye-icon toggles on or off, the same setting as in the Edit > AniVis menu. **All items** also lists the figures, props and lights that do not use AniVis yet, so you can key them from here.
+
+Right-click for more: on a key, **Visible from Here** / **Hidden from Here**, **Delete Key** and **Go to Frame**; on a bar, **Key Visible at Frame N** / **Key Hidden at Frame N** for the frame you clicked; on any row, **Select**, **Clear Keys** and **Remove AniVis** (or **Add AniVis**). Every AniVis edit is one step in Edit > Undo.
 ### Menu: Edit > AniVis
 The same items are in the Scene pane's right-click menu under Edit > AniVis. They act on the selected items.
 
