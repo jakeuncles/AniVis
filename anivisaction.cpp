@@ -176,6 +176,8 @@ DzAniVisAutoAddAction::DzAniVisAutoAddAction() :
 {
 	setCheckable(true);
 	setChecked(watcher()->auto_add());
+	// Also changed from the AniVis Timeline pane: follow it.
+	connect(watcher(), &wls_anivis_watcher::auto_add_changed, this, &QAction::setChecked);
 }
 
 void DzAniVisAutoAddAction::executeAction()

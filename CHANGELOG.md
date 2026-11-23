@@ -1,5 +1,8 @@
 # Changelog
 
+## 2.4.0
+- **Key Visibility When Toggled** checkbox in the AniVis Timeline pane, next to All items. It is the same setting as Edit > AniVis > Key Visibility When Toggled; the two stay in step.
+
 ## 2.3.2
 - Much lighter scrubbing: hiding or showing an item takes Daz 50-200 ms (viewport and Scene pane updates), and dragging a time slider used to do that for every frame passed. While you drag, AniVis now updates visibility about 10 times a second and exactly where you stop. Playback, stepping frames, renders and scripts still update every frame.
 

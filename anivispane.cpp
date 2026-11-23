@@ -435,6 +435,12 @@ DzAniVisPane::DzAniVisPane() :
 		tr("Remove Animate Visibility from the selected items; toggling their "
 		   "visibility will not add it back"));
 	buttons->addStretch(1);
+	auto_add_ = new QCheckBox(tr("Key Visibility When Toggled"));
+	auto_add_->setToolTip(tr("Toggling an item's visibility (eye icon) adds Animate Visibility "
+		"and keys it at the current frame. Same as Edit > AniVis > Key Visibility When Toggled."));
+	auto_add_->setChecked(watcher()->auto_add());
+	buttons->addWidget(auto_add_);
+	buttons->addSpacing(8);
 	show_all_ = new QCheckBox(tr("All items"));
 	show_all_->setToolTip(tr("Also list figures, props and lights without Animate Visibility"));
 	buttons->addWidget(show_all_);
@@ -478,6 +484,9 @@ DzAniVisPane::DzAniVisPane() :
 		for (DzNode *n : target_nodes()) watcher()->remove_property(n);
 	});
 	connect(show_all_, &QCheckBox::toggled, this, &DzAniVisPane::schedule_rebuild);
+	connect(auto_add_, &QCheckBox::toggled, this, [](bool on) {
+		watcher()->set_auto_add(on);
+	});
 	connect(scroll_, &QScrollBar::valueChanged, view_, &DzAniVisTimelineView::set_scroll);
 	connect(view_, &DzAniVisTimelineView::scroll_requested, this, [this](int delta) {
 		scroll_->setValue(scroll_->value() + delta);
@@ -501,6 +510,11 @@ void DzAniVisPane::connect_scene()
 
 	// Outside objects: kept so the destructor can cut them all.
 	connections_ << connect(watcher(), &wls_anivis_watcher::anivis_changed, this, &DzAniVisPane::schedule_rebuild);
+	// The menu item changed it: follow without echoing back.
+	connections_ << connect(watcher(), &wls_anivis_watcher::auto_add_changed, this, [this](bool on) {
+		if (!closing_ && auto_add_->isChecked() != on)
+			auto_add_->setChecked(on);
+	});
 	{
 		connections_
 			<< connect(dzScene, &DzScene::nodeListChanged, this, &DzAniVisPane::schedule_rebuild)

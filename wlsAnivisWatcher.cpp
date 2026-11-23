@@ -155,7 +155,10 @@ void wls_anivis_watcher::hook_scene()
 
 void wls_anivis_watcher::set_auto_add(bool on)
 {
+	if (on == auto_add_)
+		return;
 	auto_add_ = on;
+	emit auto_add_changed(on);
 	DzAppSettings settings(settings_path);
 	settings.setBoolValue(auto_add_key, on);
 }

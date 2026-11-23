@@ -89,6 +89,8 @@ public:
 signals:
 	// Something changed that the AniVis pane shows (properties, keys).
 	void anivis_changed();
+	// "Key Visibility When Toggled" was turned on or off.
+	void auto_add_changed(bool on);
 
 private:
 	wls_anivis_watcher();

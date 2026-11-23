@@ -94,6 +94,7 @@ private:
 	DzAniVisTimelineView *view_ = nullptr;
 	QScrollBar *scroll_ = nullptr;
 	QCheckBox *show_all_ = nullptr;
+	QCheckBox *auto_add_ = nullptr;
 	QLabel *summary_ = nullptr;
 	QList<QMetaObject::Connection> connections_;      // lifetime of the pane
 	QList<QMetaObject::Connection> row_connections_;  // rebuilt with the rows
