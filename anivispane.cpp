@@ -8,6 +8,7 @@
 
 #include "anivispane.h"
 
+#include <cmath>
 #include <functional>
 
 #include <QtCore/QHash>
@@ -60,12 +61,24 @@ bool node_visible(const DzNode *node)
 	return vis ? vis->getBoolValue() : true;
 }
 
-void anim_range(DzTime &start, DzTime &end, DzTime &step)
+// The frames shown: the play range, like Daz's own Timeline ruler. Start and
+// end are snapped to whole frames.
+void view_range(DzTime &start, DzTime &end, DzTime &step)
 {
-	const DzTimeRange range = dzScene->getAnimRange();
+	const DzTimeRange range = dzScene->getPlayRange();
 	step = qMax<DzTime>(1, dzScene->getTimeStep());
-	start = range.getStart();
-	end = qMax(range.getEnd(), start);
+	start = (range.getStart() / step) * step;
+	end = qMax((range.getEnd() / step) * step, start);
+}
+
+// The frame (index from `start`) a time falls on. Keys between frames take
+// effect on the next frame (see wls_anivis_watcher::value_at).
+int frame_of(DzTime t, DzTime start, DzTime step, bool round_up)
+{
+	const DzTime d = t - start;
+	if (round_up && d > 0)
+		return int((d + step - 1) / step);
+	return int(d >= 0 ? d / step : -((-d + step - 1) / step));
 }
 
 } // namespace
@@ -147,11 +160,12 @@ void DzAniVisTimelineView::scrub_to(int x)
 	if (!scene_usable())
 		return;
 	DzTime start, end, step;
-	anim_range(start, end, step);
+	view_range(start, end, step);
 	const QRect bars = bars_rect();
 	const int frames = int((end - start) / step) + 1;
-	const double f = qBound(0.0, double(x - bars.left()) / bars.width(), 0.999999);
-	const DzTime t = start + DzTime(int(f * frames)) * step;
+	// Each frame is one cell; the click picks the cell under the mouse.
+	const int frame = qBound(0, int(std::floor(double(x - bars.left()) * frames / bars.width())), frames - 1);
+	const DzTime t = start + DzTime(frame) * step;
 	if (t != dzScene->getTime())
 		dzScene->setTime(t);
 }
@@ -165,13 +179,15 @@ void DzAniVisTimelineView::paintEvent(QPaintEvent *)
 		return;
 
 	DzTime start, end, step;
-	anim_range(start, end, step);
+	view_range(start, end, step);
 	const QRect bars = bars_rect();
-	const DzTime span = end + step - start; // include the last frame
-	auto x_at = [&](DzTime t) {
-		const double f = double(qBound<DzTime>(start, t, end + step) - start) / double(span);
-		return bars.left() + f * bars.width();
-	};
+	// One cell per frame. Ticks, numbers, key diamonds and the current-frame
+	// line all sit on the middle of their frame's cell, and each cell is
+	// colored with the visibility AniVis applies on that frame.
+	const int frames = int((end - start) / step) + 1;
+	const double px_per_frame = double(bars.width()) / frames;
+	auto cell_left = [&](int f) { return bars.left() + f * px_per_frame; };
+	auto cell_mid = [&](int f) { return bars.left() + (f + 0.5) * px_per_frame; };
 	const QColor text = pal.color(QPalette::Text);
 	QColor dim = text;
 	dim.setAlpha(130);
@@ -181,8 +197,6 @@ void DzAniVisTimelineView::paintEvent(QPaintEvent *)
 	p.setPen(dim);
 	p.drawText(QRect(c_margin, 0, name_width_ - c_margin, c_ruler_h), Qt::AlignVCenter | Qt::AlignLeft, tr("Item"));
 	p.drawText(QRect(name_width_, 0, c_eye_w, c_ruler_h), Qt::AlignVCenter | Qt::AlignLeft, tr("Now"));
-	const int frames = int((end - start) / step) + 1;
-	const double px_per_frame = double(bars.width()) / frames;
 	int label_every = 1;
 	for (int k : {1, 2, 5, 10, 20, 25, 50, 100, 200, 250, 500, 1000, 2000, 5000})
 	{
@@ -194,14 +208,14 @@ void DzAniVisTimelineView::paintEvent(QPaintEvent *)
 	for (int f = 0; f < frames; ++f)
 	{
 		const int frame = first_frame + f;
-		const double x = bars.left() + f * px_per_frame;
+		const double x = cell_mid(f);
 		const bool major = frame % label_every == 0;
 		if (!major && px_per_frame < 4)
 			continue;
 		p.setPen(dim);
 		p.drawLine(QPointF(x, c_ruler_h - (major ? 8 : 4)), QPointF(x, c_ruler_h - 1));
 		if (major)
-			p.drawText(QRectF(x + 2, 0, 40, c_ruler_h - 6), Qt::AlignLeft | Qt::AlignVCenter, QString::number(frame));
+			p.drawText(QRectF(x - 20, 0, 40, c_ruler_h - 7), Qt::AlignHCenter | Qt::AlignVCenter, QString::number(frame));
 	}
 
 	// Rows.
@@ -279,27 +293,24 @@ void DzAniVisTimelineView::paintEvent(QPaintEvent *)
 		}
 		else
 		{
-			// Each key holds until the next one.
+			// Color every frame with what AniVis applies on it (the same
+			// value_at the watcher uses), merged into runs of equal value.
 			QPainterPath clip;
 			clip.addRoundedRect(strip, 3, 3);
 			p.save();
 			p.setClipPath(clip);
 			const int count = prop->getNumKeys();
-			DzTime seg_start = start;
-			bool seg_value = prop->getKeyBoolValue(0);
-			for (int k = 0; k <= count; ++k)
+			int run_start = 0;
+			bool run_value = wls_anivis_watcher::value_at(prop, start);
+			for (int f = 1; f <= frames; ++f)
 			{
-				const DzTime seg_end = (k < count) ? prop->getKeyTime(k) : end + step;
-				if (seg_end > seg_start)
-				{
-					const double x0 = x_at(seg_start), x1 = x_at(seg_end);
-					p.fillRect(QRectF(x0, strip.top(), x1 - x0, strip.height()), seg_value ? c_visible : c_hidden);
-				}
-				if (k < count)
-				{
-					seg_start = qMax(seg_start, prop->getKeyTime(k));
-					seg_value = prop->getKeyBoolValue(k);
-				}
+				const bool v = (f < frames) ? wls_anivis_watcher::value_at(prop, start + DzTime(f) * step) : !run_value;
+				if (v == run_value)
+					continue;
+				const double x0 = cell_left(run_start), x1 = cell_left(f);
+				p.fillRect(QRectF(x0, strip.top(), x1 - x0, strip.height()), run_value ? c_visible : c_hidden);
+				run_start = f;
+				run_value = v;
 			}
 			p.restore();
 
@@ -308,10 +319,12 @@ void DzAniVisTimelineView::paintEvent(QPaintEvent *)
 			const double cy = strip.center().y() + 0.5;
 			for (int k = 0; k < count; ++k)
 			{
-				const DzTime t = prop->getKeyTime(k);
-				if (t < start || t > end)
+				// A key takes effect on its frame (or the next frame when it
+				// sits between frames): draw it there.
+				const int f = frame_of(prop->getKeyTime(k), start, step, true);
+				if (f < 0 || f >= frames)
 					continue;
-				const double cx = x_at(t) + 1;
+				const double cx = cell_mid(f);
 				QPolygonF diamond;
 				diamond << QPointF(cx, cy - 5) << QPointF(cx + 4, cy) << QPointF(cx, cy + 5) << QPointF(cx - 4, cy);
 				p.drawPolygon(diamond);
@@ -321,8 +334,11 @@ void DzAniVisTimelineView::paintEvent(QPaintEvent *)
 	}
 
 	// Current frame: line over ruler and rows, plus a marker in the ruler.
-	const DzTime now = dzScene->getTime();
-	const double nx = x_at(now) + 0.5 * px_per_frame;
+	// The scene can sit between frames; mark the frame being shown.
+	const int now_frame = frame_of(dzScene->getTime(), start, step, false);
+	if (now_frame < 0 || now_frame >= frames)
+		return; // outside the play range, like Daz's own Timeline
+	const double nx = cell_mid(now_frame);
 	p.setPen(QPen(c_now, 2));
 	p.drawLine(QPointF(nx, 0), QPointF(nx, height()));
 	p.setRenderHint(QPainter::Antialiasing, true);
@@ -492,6 +508,8 @@ void DzAniVisPane::connect_scene()
 			<< connect(dzScene, &DzScene::sceneCleared, this, &DzAniVisPane::schedule_rebuild)
 			<< connect(dzScene, &DzScene::timeChanged, this, &DzAniVisPane::repaint_view)
 			<< connect(dzScene, &DzScene::animRangeChanged, this, &DzAniVisPane::repaint_view)
+			<< connect(dzScene, &DzScene::playRangeChanged, this, &DzAniVisPane::repaint_view)
+			<< connect(dzScene, &DzScene::timeStepChanged, this, &DzAniVisPane::repaint_view)
 			<< connect(dzScene, &DzScene::nodeSelectionListChanged, this, &DzAniVisPane::repaint_view)
 			<< connect(dzScene, &QObject::destroyed, this, [this]() {
 				// The scene is gone (Daz is closing): stop everything.

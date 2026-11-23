@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.3.1
+- AniVis Timeline is frame-accurate: the current-frame line, key diamonds, ticks and frame numbers all sit on the middle of their frame (the line used to be half a frame off the keys).
+- Each frame of the bars shows exactly the visibility AniVis applies on that frame; a key between two frames shows on the frame where it takes effect.
+- The pane shows the play range, like Daz's Timeline, and follows changes to the play range and frame rate.
+
 ## 2.3.0
 - New **AniVis Timeline** pane (Window > Panes (Tabs) > AniVis Timeline): a frame ruler and one row per item, showing when it is visible (green) or hidden (red), its keys and the current frame. Click or drag to move the timeline, click Now to toggle at the current frame. Dock it next to the Timeline.
 - Fixed Daz Studio crashing on close, and then on start, after using the AniVis tab of 2.2 (that tab is replaced by the pane).
